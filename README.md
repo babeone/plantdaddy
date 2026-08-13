@@ -273,3 +273,4 @@ Each of these is a decision with a reason, not a preference.
   (`src/lib/motion.ts`, mirroring the CSS variables), and
   `prefers-reduced-motion` read once and applied centrally instead of being
   re-checked in every component.
+
