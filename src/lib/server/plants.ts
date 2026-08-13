@@ -6,8 +6,13 @@ import { sql } from './db';
  * Le colonne DATE passano da to_char: postgres restituirebbe un oggetto Date,
  * che serializzato in JSON diventa un timestamp UTC e può slittare di un giorno
  * rispetto al fuso dell'utente. Il client vuole solo 'YYYY-MM-DD'.
+ *
+ * È una FUNZIONE e non una costante: un frammento `sql` creato a livello di
+ * modulo verrebbe valutato all'import, e il passo di analisi di `vite build`
+ * importa questi moduli quando DATABASE_URL non esiste ancora. Così il
+ * frammento nasce solo quando la query parte davvero.
  */
-const statusColumns = sql`
+const statusColumns = () => sql`
 	id,
 	name,
 	emoji,
@@ -46,7 +51,7 @@ export type PlantStatus = {
 /** Ordine "cosa devo fare": prima le scadenze più vicine, mai annaffiate in testa. */
 export async function listPlantStatus(tokenHash: string): Promise<PlantStatus[]> {
 	return sql<PlantStatus[]>`
-		select ${statusColumns}
+		select ${statusColumns()}
 		from plant_status
 		where user_token_hash = ${tokenHash}
 		order by next_watering asc nulls first, name asc
@@ -59,7 +64,7 @@ export async function getPlantStatus(
 	plantId: string
 ): Promise<PlantStatus | undefined> {
 	const rows = await sql<PlantStatus[]>`
-		select ${statusColumns}
+		select ${statusColumns()}
 		from plant_status
 		where user_token_hash = ${tokenHash} and id = ${plantId}
 	`;

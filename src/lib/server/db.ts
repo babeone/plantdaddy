@@ -27,4 +27,35 @@ function createClient(): postgres.Sql {
 	});
 }
 
-export const sql: postgres.Sql = (globalForDb.__plantdaddySql ??= createClient());
+function client(): postgres.Sql {
+	return (globalForDb.__plantdaddySql ??= createClient());
+}
+
+/**
+ * Il client nasce alla PRIMA query, non all'import del modulo.
+ *
+ * Motivo concreto, non teorico: `vite build` esegue un passo di analisi che
+ * IMPORTA i moduli server per leggere le opzioni esportate dalle route. In quel
+ * momento DATABASE_URL non esiste — le variabili di runtime non sono quelle di
+ * build — e creare (o validare) la connessione a livello di modulo faceva
+ * fallire il build in produzione con "DATABASE_URL non impostata", mentre in
+ * locale passava soltanto perché Vite carica il file .env.
+ *
+ * Il Proxy tiene la stessa forma di `sql`: si usa come tagged template
+ * (sql`select 1`), come funzione (sql(oggetto) negli INSERT) e con i suoi
+ * metodi (sql.begin, sql.unsafe), senza toccare nessuna delle route.
+ */
+export const sql = new Proxy(function () {} as unknown as postgres.Sql, {
+	apply(_target, _thisArg, args: unknown[]) {
+		const instance = client() as unknown as (...params: unknown[]) => unknown;
+		return instance(...args);
+	},
+	get(_target, property: string | symbol) {
+		const instance = client();
+		const value = instance[property as keyof postgres.Sql];
+		if (typeof value !== 'function') return value;
+		// Il cast serve perché TypeScript non riesce a scegliere fra gli overload
+		// di Function.bind sull'unione dei metodi di postgres.Sql.
+		return (value as (...params: unknown[]) => unknown).bind(instance);
+	}
+}) as postgres.Sql;
