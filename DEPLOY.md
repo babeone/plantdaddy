@@ -297,35 +297,49 @@ curl -s https://<HOST>/api/health
 
 Progetto `plantdaddy` → **Schedules** → **Create Schedule**
 
-| Campo    | Valore                              |
-| -------- | ----------------------------------- |
-| Name     | `plantdaddy-notify`                 |
-| Schedule | `0 * * * *` (ogni ora, al minuto 0) |
-| Service  | `plantdaddy-app`                    |
-| Command  | vedi sotto                          |
+| Campo      | Valore                              |
+| ---------- | ----------------------------------- |
+| Task Name  | `plantdaddy-notify`                 |
+| Schedule   | `0 * * * *` (ogni ora, al minuto 0) |
+| Timezone   | indifferente: vedi sotto            |
+| Shell Type | **Sh**, non Bash                    |
+| Service    | `plantdaddy-app`                    |
+| Command    | vedi sotto                          |
+
+**Shell Type: Sh.** L'immagine è `node:22-alpine` e **non contiene bash**: con
+Bash selezionato il task muore con `bash: not found`. Se il menu offre solo Bash,
+l'alternativa è installare bash nell'immagine, che per un `fetch` non ha senso.
+
+**Timezone: qualunque.** Il task gira ogni ora al minuto 0, e l'ora di
+riferimento la calcola l'endpoint con `APP_TIMEZONE`, non lo scheduler. Metterlo
+su `Europe/Rome` non fa danno ma non cambia niente.
+
+**Command:**
 
 ```sh
-node -e "fetch('http://127.0.0.1:3000/api/cron/notify',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status, await r.text())}).catch(e=>{console.error(e.message);process.exit(1)})"
+node -e "fetch('http://127.0.0.1:3000/api/cron/notify',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{const t=await r.text();console.log(r.status,t);if(!r.ok)process.exit(1)}).catch(e=>{console.error(e.message);process.exit(1)})"
 ```
 
-Gira **dentro** il container, quindi passa da `127.0.0.1` e non tocca la rete
-pubblica; il segreto viene letto dall'ambiente e non compare nella riga di
-comando (dove sarebbe visibile in `ps` e nei log di Dokploy).
+Gira **dentro** il container, quindi passa da `127.0.0.1` senza toccare la rete
+pubblica, e il segreto viene letto dall'ambiente invece di comparire nella riga
+di comando (dove sarebbe visibile in `ps` e nei log dello scheduler). L'`exit 1`
+sui codici non-2xx fa sì che Dokploy segni l'esecuzione come fallita invece di
+dire "ok" su una notifica mai partita.
 
-Se preferisci chiamare l'endpoint dall'esterno, usa `https://<HOST>/api/cron/notify`
-con lo stesso header — ma allora il segreto passa dalla rete e finisce nella
-configurazione dello Schedule.
+Se nei log leggi `ECONNREFUSED 127.0.0.1:3000`, significa che lo scheduler non
+esegue dentro il container dell'app ma in una task separata: in quel caso
+sostituisci `127.0.0.1` col nome del service dell'app, quello che leggi da
+`docker service ls | grep plant`.
 
 **Ogni ora e non una volta al giorno**: l'endpoint filtra internamente per
 `notify_hour` di ciascun utente, quindi ognuno riceve la sua unica notifica
 quotidiana all'ora che ha scelto. Lo stesso giro cancella gli action token
 scaduti e le subscription che rispondono 404/410.
 
-Prova manuale:
+Prova manuale, forzando l'ora:
 
 ```bash
-docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) \
-  node -e "fetch('http://127.0.0.1:3000/api/cron/notify?hour=9',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>console.log(r.status, await r.text()))"
+docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) node -e "fetch('http://127.0.0.1:3000/api/cron/notify?hour=9',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>console.log(r.status, await r.text()))"
 ```
 
 ---
@@ -504,33 +518,19 @@ docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb
 Cancellare il volume e ridistribuire è l'alternativa: accettabile solo a database
 vuoto, perché dopo significa perdere i dati.
 
-## 10. Backup del database
+## 10. Backup del database — deliberatamente non configurato
 
-Progetto `plantdaddy` → service `plantdaddy-db` → **Backups** → **Create Backup**
+Nessuno Schedule di backup: scelta consapevole per un'app personale.
 
-| Campo       | Valore                                             |
-| ----------- | -------------------------------------------------- |
-| Schedule    | `0 3 * * *` (ogni notte alle 03:00)                |
-| Database    | `plantdaddy`                                       |
-| Destination | storage S3/locale **diverso** dagli altri progetti |
-| Keep        | 14 backup                                          |
+Sappi cosa comporta. Senza account e senza backup del database, se il volume di
+Postgres si perde i dati non tornano: non c'è nessuna copia sul server. L'unica
+rete di sicurezza è l'**export JSON dall'app** (Impostazioni → Esporta backup),
+che è lato utente e va fatto a mano.
 
-Backup separato dagli altri progetti, così un ripristino non può sovrascrivere
-i dati di qualcos'altro.
-
-**Prova il ripristino almeno una volta**: un backup non verificato non è un
-backup. Ripristina su un database temporaneo, non su quello di produzione:
-
-```bash
-DB=$(docker ps --format '{{.Names}}' | grep plantdaddy-db | head -1)
-docker exec -i $DB psql -U plantdaddy -c 'create database plantdaddy_restore_test;'
-gunzip -c backup.sql.gz | docker exec -i $DB psql -U plantdaddy -d plantdaddy_restore_test
-docker exec -i $DB psql -U plantdaddy -d plantdaddy_restore_test -c 'select count(*) from plants;'
-docker exec -i $DB psql -U plantdaddy -c 'drop database plantdaddy_restore_test;'
-```
-
-Nota: gli utenti hanno anche il proprio export JSON dall'app (Impostazioni →
-Esporta backup). È la rete di sicurezza dell'utente; questa è la tua.
+Se un giorno cambi idea, sono due minuti: `plantdaddy-db` → **Backups** →
+`0 3 * * *`, destinazione separata dagli altri progetti, 14 copie. E poi provalo
+davvero, ripristinando su un database temporaneo: un backup non verificato non è
+un backup.
 
 ---
 
@@ -558,8 +558,7 @@ Esporta backup). È la rete di sicurezza dell'utente; questa è la tua.
 - [ ] dominio `<HOST>` con certificato valido
 - [ ] `https://<HOST>/api/health` risponde `{"ok":true}`
 - [ ] `/api/cron/notify` senza header risponde 401
-- [ ] Schedule oraria attiva e testata a mano
-- [ ] backup notturno configurato **e ripristino provato una volta**
+- [ ] Schedule oraria attiva (Shell Type: Sh) e testata a mano
 - [ ] **verifica dall'esterno**: 5432 non raggiungibile, 3000 filtrata
 - [ ] app installata sul telefono e notifiche attivate (su iPhone serve
       l'aggiunta alla Home: vedi README)

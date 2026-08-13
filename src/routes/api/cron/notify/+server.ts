@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import webpush, { WebPushError } from 'web-push';
 import { sql } from '$lib/server/db';
+import { currentHour } from '$lib/server/date';
 import {
 	buildSummary,
 	createActionToken,
@@ -44,10 +45,12 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	webpush.setVapidDetails(env.VAPID_SUBJECT, vapidPublicKey, env.VAPID_PRIVATE_KEY);
 
 	// L'ora si può forzare per provare l'invio a mano; resta dietro il segreto.
+	// Senza parametro si usa l'ora nel fuso dell'app (APP_TIMEZONE) e non quella
+	// del container, che gira in UTC: notify_hour è l'orologio dell'utente.
 	const hourParam = url.searchParams.get('hour');
 	const hour =
 		hourParam === null
-			? new Date().getHours()
+			? currentHour()
 			: Math.min(23, Math.max(0, Number.parseInt(hourParam, 10) || 0));
 
 	const duePlants = await findDuePlants(hour);

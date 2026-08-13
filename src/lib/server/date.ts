@@ -20,6 +20,24 @@ export function today(): string {
 	return formatter.format(new Date());
 }
 
+const hourFormatter = new Intl.DateTimeFormat('en-GB', {
+	timeZone: TIMEZONE,
+	hour: '2-digit',
+	hour12: false
+});
+
+/**
+ * Ora corrente nel fuso dell'utente, 0-23.
+ *
+ * Il cron confronta questo valore con notify_hour, che l'utente ha scelto
+ * pensando all'orologio di casa sua. Con new Date().getHours() si prenderebbe
+ * l'ora del container, che gira in UTC: chi imposta le 9 riceverebbe la
+ * notifica alle 11 d'estate e alle 10 d'inverno.
+ */
+export function currentHour(): number {
+	return Number.parseInt(hourFormatter.format(new Date()), 10);
+}
+
 export function addDays(isoDate: string, days: number): string {
 	const [year, month, day] = isoDate.split('-').map(Number);
 	// UTC per non incappare nei cambi di ora legale sommando giorni.
