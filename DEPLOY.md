@@ -154,6 +154,34 @@ interroga `/api/health`.
 
 ---
 
+## 4b. Auto deploy a ogni push
+
+Se il repo è collegato con la **GitHub App** di Dokploy (Settings → Git
+Providers → GitHub), basta attivare **Auto Deploy** nell'Application e
+controllare che Branch sia `main`: il webhook lo gestisce Dokploy.
+
+Se invece il Source è **Git** con URL e deploy key, il webhook va aggiunto a
+mano: `plantdaddy-app` → tab **Deployments** → copia la **Webhook URL**, poi su
+GitHub → Settings → Webhooks → Add webhook, content type
+`application/json`, evento **Just the push event**. Quella URL contiene un token:
+va trattata come una credenziale.
+
+Verifica con un commit vuoto:
+
+```bash
+git commit --allow-empty -m "prova autodeploy" && git push
+```
+
+Se non parte niente, GitHub → Settings → Webhooks → **Recent Deliveries** dice se
+la richiesta è arrivata (`200` = webhook ok, quindi manca il toggle Auto Deploy)
+o se l'URL è sbagliata.
+
+**Conseguenza da tenere presente**: con l'auto deploy attivo, ogni push su `main`
+va in produzione **migrazioni incluse**, perché le applica l'entrypoint
+all'avvio. È il comportamento voluto, ma significa che `main` non è più un posto
+dove sperimentare: per provare qualcosa usa un branch e sposta il campo Branch
+solo quando vuoi promuovere.
+
 ## 5. Variabili d'ambiente
 
 `plantdaddy-app` → **Environment**:
