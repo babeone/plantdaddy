@@ -208,6 +208,14 @@ Note that this is a source-available license, not an OSI-approved open-source
 one: GitHub displays it as "Other", and some organisations decline noncommercial
 licenses on principle. That is the deliberate trade-off.
 
+### Bundled third-party assets
+
+The UI font is **Baloo 2** (`static/fonts/`), by the Baloo 2 Project Authors,
+under the SIL Open Font License 1.1 — license text in
+[`static/fonts/Baloo2-OFL.txt`](static/fonts/Baloo2-OFL.txt). It is self-hosted
+rather than loaded from Google Fonts, so no third party sees the IP address of
+anyone who opens the app, and the CSP can stay at `font-src 'self'`.
+
 ## Architecture notes
 
 Each of these is a decision with a reason, not a preference.
@@ -273,4 +281,3 @@ Each of these is a decision with a reason, not a preference.
   (`src/lib/motion.ts`, mirroring the CSS variables), and
   `prefers-reduced-motion` read once and applied centrally instead of being
   re-checked in every component.
-

@@ -1,4 +1,33 @@
 /* ============================================================
+   0. FONT — self-hosted, così l'app è identica su ogni dispositivo
+   ============================================================ */
+/*
+ * Baloo 2, variabile 400-800, licenza SIL OFL (static/fonts/Baloo2-OFL.txt).
+ *
+ * Prima lo stack era 'Chalkboard SE', 'Comic Sans MS', cursive: Chalkboard è un
+ * font di SISTEMA Apple, quindi su macOS e iOS si vedeva quello e su Android si
+ * cadeva su `cursive`, che ogni dispositivo mappa a modo suo. Risultato: la
+ * stessa app con due facce diverse. Chalkboard non è redistribuibile, quindi la
+ * strada per avere un solo font su tutti è self-hostarne uno libero.
+ *
+ * Servito dalla nostra origine, quindi la CSP resta `font-src 'self'`: nessuna
+ * richiesta a Google Fonts, nessun terzo che vede gli IP di chi apre l'app.
+ *
+ * font-display: swap — il testo compare subito col fallback e cambia quando il
+ * woff2 è pronto: 33 KB non giustificano una schermata bianca.
+ */
+@font-face {
+	font-family: 'Baloo 2';
+	src: url('/fonts/baloo2-latin-var.woff2') format('woff2');
+	font-weight: 400 800;
+	font-style: normal;
+	font-display: swap;
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ============================================================
    1. TOKENS — palette, ritmo, curve
    Cambia qui i tre valori di durata e i due easing per
    regolare il ritmo di TUTTA l'app.
@@ -65,11 +94,10 @@
 
 	--safe-b: env(safe-area-inset-bottom, 0px);
 
-	/* --- tipografia: stack cartoon, con fallback di sistema.
-     Chalkboard SE c'è su macOS/iOS, Comic Sans su Windows/Android.
-     In Fase 2, se vuoi un font unico su tutti i device, si
-     self-hosta un woff2 (Baloo, Fredoka): resta zero-CDN. --- */
-	--font-ui: 'Chalkboard SE', 'Comic Sans MS', 'Trebuchet MS', cursive;
+	/* --- tipografia: un solo font per tutti i dispositivi.
+     I fallback servono solo nei millisecondi prima che il woff2 sia
+     pronto, non a scegliere un font diverso per piattaforma. --- */
+	--font-ui: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
 	--font-display: var(--font-ui);
 }
 

@@ -133,7 +133,12 @@
 		text-align: center;
 		padding: 34px 8px 18px;
 	}
+	/* flex e non text-align: l'svg del componente Logo è display:block, che
+	   text-align non centra. Puntare all'svg da qui non funzionerebbe comunque,
+	   perché lo scoping di Svelte non attraversa i componenti figli. */
 	.hero .logo {
+		display: flex;
+		justify-content: center;
 		animation: pop var(--dur-slow) var(--ease-back) both;
 	}
 	.hero h2 {
