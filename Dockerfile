@@ -46,10 +46,12 @@ ENV BODY_SIZE_LIMIT=8M
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
 COPY package.json ./
-# Migrazioni dentro l'immagine: servono per poter lanciare `npm run migrate`
-# come pre-deploy command o dalla shell del container. Sono pochi KB di SQL.
+# Migrazioni dentro l'immagine: le esegue l'entrypoint all'avvio, e restano
+# lanciabili a mano dalla shell del container. Sono pochi KB di SQL.
 COPY db ./db
 COPY scripts ./scripts
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
 # L'immagine ufficiale ha già l'utente non privilegiato `node` (uid 1000).
 # Girare da root darebbe a un'eventuale RCE i permessi per riscrivere l'app.
@@ -64,4 +66,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "build/index.js"]
+# L'entrypoint applica le migrazioni e poi passa il controllo al server.
+# Per saltarle (per esempio durante un debug) basta RUN_MIGRATIONS=0.
+CMD ["./docker-entrypoint.sh"]

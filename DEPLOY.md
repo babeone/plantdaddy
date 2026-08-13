@@ -87,18 +87,44 @@ La parentesi quadra deve essere **vuota** o contenere solo `5432/tcp` senza
 
 ## 3. Connection string interna
 
-Il container dell'app raggiunge il database **per nome del service**, non su
+Il container dell'app raggiunge il database **per nome del container**, non su
 `localhost`: dentro un container `localhost` è il container stesso.
 
+Il nome da usare **non è** il campo Name, e non è nemmeno esattamente l'App Name
+mostrato nel pannello: Dokploy gira in **Swarm mode** e aggiunge all'App Name un
+suffisso casuale generato alla creazione del service. Con Name `plantdaddy-db` e
+App Name `plantdaddy-plantdaddydb`, il service reale può chiamarsi
+`plantdaddy-plantdaddydb-ib0ewe` — e quello è l'alias DNS nella rete:
+
 ```
-DATABASE_URL=postgres://plantdaddy:LA_PASSWORD@plantdaddy-db:5432/plantdaddy
+DATABASE_URL=postgres://plantdaddy:LA_PASSWORD@plantdaddy-plantdaddydb-ib0ewe:5432/plantdaddy
 ```
 
-Se Dokploy assegna al service un nome interno diverso (a volte aggiunge un
-suffisso), prendi quello vero da:
+Non inventarlo: leggilo. Il nome del service è quello che precede `.1.` nel nome
+del container.
 
 ```bash
-docker ps --format '{{.Names}}' | grep plantdaddy
+docker service ls | grep -i plant
+```
+
+```bash
+docker ps --format '{{.Names}}' | grep -i plant
+```
+
+Il suffisso resta stabile ai redeploy, ma cambia se cancelli e ricrei il service:
+dopo un'operazione del genere, ricontrolla il `DATABASE_URL`.
+
+Attenzione anche a `docker inspect`: cercare il _service_ per nome dà
+`No such object`, perché inspect vuole il container (`servizio.1.taskid`) mentre
+il DNS interno risolve il service. Sono due spazi di nomi diversi, e non è un
+segno che il database non esista.
+
+Con l'hostname sbagliato l'app parte e muore con `ENOTFOUND`, che sembra un
+problema di credenziali e non lo è. Verifica la risoluzione dall'app, dopo il
+deploy:
+
+```bash
+docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) node -e "require('dns').promises.lookup(process.argv[1]).then(r=>console.log('risolve:',r)).catch(e=>console.log('NON risolve:',e.code))" plantdaddy-plantdaddydb-ib0ewe
 ```
 
 ---
@@ -132,16 +158,16 @@ interroga `/api/health`.
 
 `plantdaddy-app` → **Environment**:
 
-| Variabile                 | Valore                                                    | Note                                                       |
-| ------------------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`            | `postgres://plantdaddy:...@plantdaddy-db:5432/plantdaddy` | nome del service, non localhost                            |
-| `ORIGIN`                  | `https://<HOST>`                                          | serve ad adapter-node per costruire le URL dietro il proxy |
-| `APP_TIMEZONE`            | `Europe/Rome`                                             | decide qual è "oggi": il container gira in UTC             |
-| `PUBLIC_VAPID_PUBLIC_KEY` | chiave pubblica VAPID                                     | l'unica esposta al client (prefisso `PUBLIC_`)             |
-| `VAPID_PRIVATE_KEY`       | chiave privata VAPID                                      | resta sul server                                           |
-| `VAPID_SUBJECT`           | `mailto:tuo@indirizzo`                                    | contatto richiesto dai push service                        |
-| `CRON_SECRET`             | `openssl rand -hex 32`                                    | protegge `/api/cron/notify`                                |
-| `BODY_SIZE_LIMIT`         | `8M` (già nel Dockerfile)                                 | l'import di un backup pieno supera il default di 512K      |
+| Variabile                 | Valore                                                        | Note                                                       |
+| ------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`            | `postgres://plantdaddy:...@<NOME-SERVICE-DB>:5432/plantdaddy` | nome del service Swarm (con suffisso), non localhost       |
+| `ORIGIN`                  | `https://<HOST>`                                              | serve ad adapter-node per costruire le URL dietro il proxy |
+| `APP_TIMEZONE`            | `Europe/Rome`                                                 | decide qual è "oggi": il container gira in UTC             |
+| `PUBLIC_VAPID_PUBLIC_KEY` | chiave pubblica VAPID                                         | l'unica esposta al client (prefisso `PUBLIC_`)             |
+| `VAPID_PRIVATE_KEY`       | chiave privata VAPID                                          | resta sul server                                           |
+| `VAPID_SUBJECT`           | `mailto:tuo@indirizzo`                                        | contatto richiesto dai push service                        |
+| `CRON_SECRET`             | `openssl rand -hex 32`                                        | protegge `/api/cron/notify`                                |
+| `BODY_SIZE_LIMIT`         | `8M` (già nel Dockerfile)                                     | l'import di un backup pieno supera il default di 512K      |
 
 > **Se un import fallisce con `{"message":"Body JSON non valido"}`, guarda qui
 > prima di cercare bug nel JSON.** Quando il corpo supera `BODY_SIZE_LIMIT`
@@ -175,25 +201,32 @@ npm run migrate
 
 Due modi per lanciarle, con rischi diversi.
 
-### Opzione A — Pre-deploy command di Dokploy (consigliata)
+### Opzione A — All'avvio del container (quella in uso)
 
-`plantdaddy-app` → **Advanced** → **Pre Deploy Command**:
+`docker-entrypoint.sh` applica le migrazioni e poi lancia il server. Non serve
+configurare niente in Dokploy: è dentro l'immagine.
 
-```
-npm run migrate
-```
-
-- **Pro**: nessun passaggio manuale da ricordare, lo schema è sempre allineato
-  al codice che sta partendo, e un errore di migrazione **blocca il deploy**
-  invece di mandare in produzione codice che si aspetta colonne inesistenti.
+- **Pro**: nessun passaggio manuale da ricordare, lo schema è sempre allineato al
+  codice che sta partendo (sono la stessa immagine e lo stesso commit), e se una
+  migrazione fallisce il container **esce con errore** invece di servire un'app
+  che si aspetta colonne inesistenti. Traefik continua a instradare sulla task
+  vecchia finché la nuova non diventa sana.
 - **Contro**: se la migrazione è lenta o distruttiva parte comunque, senza che
-  nessuno la guardi. Con `ALTER TABLE` su tabelle grandi Postgres prende un
-  lock e l'app resta ferma finché non finisce. Su questo progetto le tabelle
-  sono piccole, quindi il rischio è teorico.
-- **Attenzione**: se un giorno avrai più repliche dell'app, il pre-deploy
-  potrebbe girare in parallelo su ognuna. Le migrazioni non hanno un lock
-  distribuito: due esecuzioni simultanee della stessa migrazione possono
-  fallire una delle due. Con una sola istanza non è un problema.
+  nessuno la guardi. Con `ALTER TABLE` su tabelle grandi Postgres prende un lock
+  e l'avvio resta bloccato finché non finisce. Su questo progetto le tabelle sono
+  piccole, quindi il rischio è teorico.
+- **Attenzione alle repliche**: con più di una replica gli avvii sono in
+  parallelo e le migrazioni non hanno un lock distribuito, quindi due esecuzioni
+  simultanee della stessa migrazione possono farne fallire una. Con `Replicas: 1`
+  non è un problema; se un giorno sali di numero, passa all'opzione B.
+- Per saltarle durante un debug: variabile `RUN_MIGRATIONS=0`.
+
+> **Non usare la voce "Run Command" di Dokploy** (Advanced → Run Command, con
+> Command `/bin/sh` e Args) per le migrazioni: quel campo **sostituisce** il
+> comando di avvio del container, quindi il container eseguirebbe le migrazioni
+> _invece_ dell'app e poi terminerebbe. Questa versione di Dokploy non ha un
+> pre-deploy command, ed è la ragione per cui le migrazioni stanno
+> nell'entrypoint.
 
 ### Opzione B — A mano dalla shell del container
 
@@ -210,8 +243,10 @@ npm run migrate
   la migrazione no, l'app parte contro uno schema vecchio e gli errori arrivano
   agli utenti, non a te.
 
-**Consiglio**: tieni l'opzione A come default e passa temporaneamente alla B
-quando una migrazione è grossa o irreversibile.
+**Consiglio**: l'opzione A è già attiva e va bene per il funzionamento normale.
+Quando una migrazione è grossa o irreversibile, imposta `RUN_MIGRATIONS=0`,
+distribuisci, lancia la migrazione a mano guardando l'output, poi rimetti la
+variabile a 1.
 
 Verifica dello schema dopo il deploy (gira in una transazione con `ROLLBACK`,
 non lascia dati). Il file `db/verify.sql` non è dentro l'immagine — è escluso dal
@@ -413,12 +448,61 @@ curl -s -o /dev/null -w '%{http_code}\n' https://<HOST>/api/cron/notify
 3. Se ti serve accedere al database dal portatile, **non pubblicare la porta**:
    usa un tunnel SSH, che passa dall'autenticazione di SSH e non apre niente.
 
+**Attenzione al bersaglio del forward**: l'host lo risolve `sshd` sulla macchina,
+che non sta nella rete Docker e **non conosce i nomi dei container**. Quindi
+`-L 15432:plantdaddy-db:5432` non funziona, e `-L 15432:localhost:5432` finisce
+su qualunque cosa ascolti sul loopback dell'host — spesso il Postgres di un
+altro progetto, con un `password authentication failed` che sembra un problema di
+credenziali e invece è un problema di indirizzo. Serve l'IP del container:
+
+In Swarm gli IP della rete overlay non sono instradabili dall'host, quindi non
+basta puntare il forward all'IP del container. La strada che funziona è un
+`socat` che pubblica **solo sulla loopback dell'host**, sul VPS:
+
 ```bash
-ssh -N -L 15432:plantdaddy-db:5432 utente@<IP-DEL-VPS>
-# poi in locale: psql postgres://plantdaddy:...@127.0.0.1:15432/plantdaddy
+docker run -d --restart unless-stopped --name plantdaddy-pgtunnel --network dokploy-network -p 127.0.0.1:15432:5432 alpine/socat tcp-listen:5432,fork,reuseaddr tcp-connect:NOME-SERVICE-DB:5432
+```
+
+Il `127.0.0.1:` davanti è la parte che conta: senza quello la porta finisce su
+tutte le interfacce e il database è su internet. Poi dal portatile:
+
+```bash
+ssh -N -L 15432:127.0.0.1:15432 utente@<IP-DEL-VPS>
+```
+
+Poi in locale: `psql postgres://plantdaddy:...@127.0.0.1:15432/plantdaddy`, oppure
+in un client grafico host `127.0.0.1` porta `15432`, senza la sua funzione "over
+SSH" (altrimenti apre un secondo tunnel e ti ritrovi a interrogare il loopback
+sbagliato).
+
+Se devi solo dare un'occhiata ai dati è più rapido saltare tutto:
+
+```bash
+ssh utente@<IP-DEL-VPS> -t "docker exec -it \$(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb | head -1) psql -U plantdaddy -d plantdaddy"
 ```
 
 ---
+
+### 9e. `password authentication failed` dopo aver cambiato la password
+
+`POSTGRES_PASSWORD` viene applicata **solo alla prima inizializzazione del
+volume**. Se cambi il campo Password in Dokploy e ridistribuisci, il ruolo nel
+volume conserva quella vecchia e l'errore è indistinguibile da una credenziale
+sbagliata. Verifica forzando TCP dentro il container (col socket locale
+l'immagine ufficiale usa `trust` e passerebbe comunque):
+
+```bash
+docker exec -e PGPASSWORD='LA_PASSWORD_DI_DOKPLOY' $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb | head -1) psql -h 127.0.0.1 -U plantdaddy -d plantdaddy -c 'select current_user'
+```
+
+Se fallisce, allinea il ruolo alla password del pannello:
+
+```bash
+docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb | head -1) psql -U plantdaddy -d postgres -c "alter user plantdaddy with password 'LA_PASSWORD_DI_DOKPLOY';"
+```
+
+Cancellare il volume e ridistribuire è l'alternativa: accettabile solo a database
+vuoto, perché dopo significa perdere i dati.
 
 ## 10. Backup del database
 
@@ -468,7 +552,7 @@ Esporta backup). È la rete di sicurezza dell'utente; questa è la tua.
 
 - [ ] progetto `plantdaddy` separato dagli altri progetti sulla macchina
 - [ ] `plantdaddy-db` con External Port vuoto
-- [ ] `DATABASE_URL` che punta a `plantdaddy-db`, non a localhost
+- [ ] `DATABASE_URL` che punta all'App Name del database, non a localhost
 - [ ] tutte le env var impostate, VAPID incluse
 - [ ] migrazioni applicate (`schema_migrations` contiene `001_init` e `002_action_tokens`)
 - [ ] dominio `<HOST>` con certificato valido
