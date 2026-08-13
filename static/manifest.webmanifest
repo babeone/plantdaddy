@@ -1,0 +1,46 @@
+{
+	"name": "PlantDaddy — cura delle piante",
+	"short_name": "PlantDaddy",
+	"description": "Annaffiature e concimazioni delle piante di casa, senza account.",
+	"lang": "it",
+	"dir": "ltr",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "portrait",
+	"background_color": "#0f1a14",
+	"theme_color": "#0f1a14",
+	"categories": ["lifestyle", "productivity"],
+	"icons": [
+		{
+			"src": "/icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Cosa curare oggi",
+			"url": "/",
+			"icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+		},
+		{
+			"name": "Le mie piante",
+			"url": "/piante",
+			"icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+		}
+	]
+}

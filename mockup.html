@@ -1,0 +1,2802 @@
+<!doctype html>
+<html lang="it" data-nav="fwd">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#1f6b4a" />
+		<title>PlantDaddy — mockup</title>
+		<style>
+			/* ============================================================
+   1. TOKENS — palette, ritmo, curve
+   Cambia qui i tre valori di durata e i due easing per
+   regolare il ritmo di TUTTA l'app.
+   ============================================================ */
+			:root {
+				/* --- durate --- */
+				--dur-fast: 130ms; /* micro-interazioni: tap, toggle, badge */
+				--dur-mid: 220ms; /* bottom sheet, card, transizioni di vista */
+				--dur-slow: 300ms; /* entrate complesse, max consentito 400ms */
+
+				/* --- easing (riusare SEMPRE questi, niente curve improvvisate) --- */
+				--ease-out: cubic-bezier(0.22, 0.61, 0.36, 1); /* uscita morbida, default */
+				--ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19); /* sparizioni */
+				--ease-back: cubic-bezier(0.34, 1.35, 0.64, 1); /* micro rimbalzo, solo conferme */
+
+				/* --- stagger lista --- */
+				--stagger: 38ms;
+
+				/* --- palette: GIUNGLA NOTTURNA --- */
+				--bg: #0f1a14;
+				--surface: #17251d;
+				--surface-2: #1e2f25;
+				--line: #2b3f33;
+
+				--text: #e8f1ea;
+				--text-dim: #a9bdb0;
+				--text-mute: #7d9287;
+
+				--brand: #48c98a;
+				--brand-ink: #06120c;
+				--brand-soft: #1c3b2a;
+
+				--water: #4aa8e0;
+				--water-soft: #16303f;
+				--fert: #d9a441;
+				--fert-soft: #39301a;
+
+				--late: #ff7a6b;
+				--late-soft: #3d1f1c;
+				--today: #ffc14d;
+				--today-soft: #3a2c12;
+				--soon: #7fb2d9;
+				--ok: #58c48a;
+
+				--winter: #6cb6e8;
+				--winter-soft: #16303f;
+
+				/* --- colori del logo --- */
+				--leaf-2: #3f9a63;
+				--leaf-3: #2b7d51;
+				--pot: #d0714a;
+				--pot-rim: #e5865b;
+				--ink: #22303a;
+				--stache: #55372a;
+				--gold: #e3b23c;
+
+				/* --- forma --- */
+				--r-sm: 10px;
+				--r-md: 16px;
+				--r-lg: 22px;
+				--r-xl: 28px;
+				--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+				--shadow-2: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+				--safe-b: env(safe-area-inset-bottom, 0px);
+
+				/* --- tipografia: stack cartoon, con fallback di sistema.
+     Chalkboard SE c'è su macOS/iOS, Comic Sans su Windows/Android.
+     In Fase 2, se vuoi un font unico su tutti i device, si
+     self-hosta un woff2 (Baloo, Fredoka): resta zero-CDN. --- */
+				--font-ui: 'Chalkboard SE', 'Comic Sans MS', 'Trebuchet MS', cursive;
+				--font-display: var(--font-ui);
+			}
+
+			/* ============================================================
+   2. RESET + BASE
+   ============================================================ */
+			* {
+				box-sizing: border-box;
+				-webkit-tap-highlight-color: transparent;
+			}
+			html,
+			body {
+				height: 100%;
+			}
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 16px/1.45 var(--font-ui);
+				overscroll-behavior-y: none;
+			}
+			/* titoli e marchio: stack separato, così un tema può cambiare
+   solo i titoli senza toccare la leggibilità del corpo testo */
+			.brand,
+			.topbar h1,
+			.hero h2,
+			.sheet h2,
+			.stat b {
+				font-family: var(--font-display);
+			}
+			button,
+			input,
+			select,
+			textarea {
+				font: inherit;
+				color: inherit;
+			}
+			button {
+				border: 0;
+				background: none;
+				cursor: pointer;
+			}
+			h1,
+			h2,
+			h3,
+			p {
+				margin: 0;
+			}
+			ul {
+				margin: 0;
+				padding: 0;
+				list-style: none;
+			}
+
+			/* Il "telefono": 390px di riferimento, ma il layout regge anche desktop */
+			#app {
+				max-width: 430px;
+				margin: 0 auto;
+				min-height: 100%;
+				background: var(--bg);
+				position: relative;
+				display: flex;
+				flex-direction: column;
+				box-shadow: 0 0 0 1px var(--line);
+			}
+			@media (min-width: 900px) {
+				body {
+					background: var(--surface-2);
+				}
+				#app {
+					min-height: 100vh;
+				}
+			}
+
+			/* ============================================================
+   3. LAYOUT — header, scroll area, bottom nav
+   ============================================================ */
+			.topbar {
+				position: sticky;
+				top: 0;
+				z-index: 20;
+				background: color-mix(in srgb, var(--bg) 88%, transparent);
+				backdrop-filter: blur(12px);
+				border-bottom: 1px solid var(--line);
+				padding: 14px 16px 10px;
+				display: flex;
+				align-items: center;
+				gap: 10px;
+			}
+			.topbar h1 {
+				font-size: 22px;
+				font-weight: 700;
+				letter-spacing: -0.02em;
+				flex: 1;
+			}
+			.topbar .sub {
+				font-size: 13px;
+				color: var(--text-dim);
+				font-weight: 500;
+			}
+
+			/* ---- MARCHIO NEL LAYOUT ----
+   Home: logo grande dentro un badge morbido + wordmark.
+   Altre schermate: logo piccolo accanto al titolo, così il marchio
+   è sempre presente senza rubare spazio verticale. */
+			.logo-mark {
+				width: 44px;
+				height: 44px;
+				flex: none;
+				display: block;
+			}
+			.logo-mark.sm {
+				width: 30px;
+				height: 30px;
+			}
+			.logo-badge {
+				flex: none;
+				display: grid;
+				place-items: center;
+				width: 56px;
+				height: 56px;
+				border-radius: var(--r-lg);
+				background: var(--brand-soft);
+			}
+			.topbar-home {
+				padding: 12px 16px 10px;
+				gap: 12px;
+			}
+			.brand {
+				font-size: 23px;
+				font-weight: 750;
+				letter-spacing: -0.03em;
+				flex: 1;
+				line-height: 1.1;
+			}
+			.brand small {
+				display: block;
+				font-size: 11.5px;
+				font-weight: 600;
+				letter-spacing: 0;
+				color: var(--text-mute);
+				margin-top: 1px;
+			}
+			.topbar .date {
+				font-size: 12.5px;
+				font-weight: 500;
+				color: var(--text-mute);
+				text-align: right;
+				line-height: 1.2;
+			}
+			.back-btn {
+				width: 36px;
+				height: 36px;
+				border-radius: 50%;
+				display: grid;
+				place-items: center;
+				background: var(--surface-2);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.back-btn:active {
+				transform: scale(0.9);
+			}
+
+			.scroll {
+				flex: 1;
+				padding: 14px 16px 120px;
+			}
+
+			.tabbar {
+				position: sticky;
+				bottom: 0;
+				z-index: 20;
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				background: color-mix(in srgb, var(--surface) 92%, transparent);
+				backdrop-filter: blur(14px);
+				border-top: 1px solid var(--line);
+				padding: 6px 0 calc(6px + var(--safe-b));
+			}
+			.tabbar button {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 2px;
+				padding: 6px 0;
+				font-size: 11px;
+				font-weight: 600;
+				color: var(--text-mute);
+				transition:
+					color var(--dur-fast) var(--ease-out),
+					transform var(--dur-fast) var(--ease-out);
+			}
+			.tabbar button svg {
+				width: 24px;
+				height: 24px;
+				stroke-width: 1.8;
+			}
+			.tabbar button:active {
+				transform: scale(0.92);
+			}
+			.tabbar button[aria-current='page'] {
+				color: var(--brand);
+			}
+			.tabbar .dot {
+				width: 4px;
+				height: 4px;
+				border-radius: 50%;
+				background: var(--brand);
+				transform: scale(0);
+				transition: transform var(--dur-fast) var(--ease-back);
+			}
+			.tabbar button[aria-current='page'] .dot {
+				transform: scale(1);
+			}
+
+			/* ============================================================
+   4. SCHERMATE — show/hide
+   ============================================================ */
+			.screen {
+				display: none;
+				flex: 1;
+				flex-direction: column;
+			}
+			.screen.active {
+				display: flex;
+			}
+
+			/* ============================================================
+   5. COMPONENTI — card pianta
+   ============================================================ */
+			.card {
+				background: var(--surface);
+				border: 1px solid var(--line);
+				border-radius: var(--r-lg);
+				padding: 14px;
+				box-shadow: var(--shadow-1);
+				margin-bottom: 12px;
+				/* Skip del rendering fuori viewport. contain-intrinsic-size stimata
+     sull'altezza reale della card per non far saltare lo scroll. */
+				content-visibility: auto;
+				contain-intrinsic-size: auto 150px;
+			}
+			.card-head {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+			}
+			.avatar {
+				width: 46px;
+				height: 46px;
+				flex: none;
+				border-radius: 14px;
+				background: var(--surface-2);
+				display: grid;
+				place-items: center;
+				font-size: 24px;
+			}
+			.card-title {
+				flex: 1;
+				min-width: 0;
+			}
+			.card-title .name {
+				font-weight: 650;
+				font-size: 17px;
+				letter-spacing: -0.01em;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.card-title .room {
+				font-size: 13px;
+				color: var(--text-mute);
+			}
+
+			/* pill di stato */
+			.pill {
+				display: inline-flex;
+				align-items: center;
+				gap: 5px;
+				font-size: 12px;
+				font-weight: 650;
+				padding: 4px 9px;
+				border-radius: 999px;
+				white-space: nowrap;
+			}
+			.pill.late {
+				background: var(--late-soft);
+				color: var(--late);
+			}
+			.pill.today {
+				background: var(--today-soft);
+				color: var(--today);
+			}
+			.pill.soon {
+				background: var(--surface-2);
+				color: var(--soon);
+			}
+			.pill.ok {
+				background: var(--surface-2);
+				color: var(--ok);
+			}
+			.pill.snoozed {
+				background: var(--surface-2);
+				color: var(--text-mute);
+			}
+			.pill.water {
+				background: var(--water-soft);
+				color: var(--water);
+			}
+			.pill.fert {
+				background: var(--fert-soft);
+				color: var(--fert);
+			}
+
+			.meta-row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+				margin-top: 10px;
+			}
+
+			/* ============================================================
+   6. BOTTONI — gerarchia: primario grande, secondario defilato
+   Feedback :active immediato su transform (no layout, no repaint).
+   ============================================================ */
+			.actions {
+				display: flex;
+				gap: 8px;
+				margin-top: 12px;
+				align-items: stretch;
+			}
+			.btn {
+				border-radius: var(--r-md);
+				font-weight: 650;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				gap: 7px;
+				transition:
+					transform var(--dur-fast) var(--ease-out),
+					opacity var(--dur-fast) var(--ease-out);
+				touch-action: manipulation;
+			}
+			.btn:active {
+				transform: scale(0.97);
+			}
+
+			/* PRIMARIO — registrazione immediata, un solo tap */
+			.btn-care {
+				flex: 1;
+				min-height: 52px;
+				font-size: 16px;
+				background: var(--water);
+				color: #fff;
+				box-shadow: 0 2px 0 color-mix(in srgb, var(--water) 70%, #000);
+			}
+			.btn-care.fert {
+				background: var(--fert);
+				box-shadow: 0 2px 0 color-mix(in srgb, var(--fert) 70%, #000);
+			}
+			.btn-care:active {
+				transform: scale(0.97) translateY(1px);
+			}
+
+			/* SECONDARI — snooze e evento passato: piccoli, grigi, defilati */
+			.btn-ghost {
+				min-height: 52px;
+				width: 52px;
+				flex: none;
+				background: var(--surface-2);
+				color: var(--text-dim);
+				border: 1px solid var(--line);
+			}
+			.btn-mini {
+				font-size: 12.5px;
+				font-weight: 600;
+				color: var(--text-mute);
+				padding: 6px 10px;
+				border-radius: var(--r-sm);
+				background: transparent;
+				border: 1px dashed var(--line);
+			}
+			.btn-primary {
+				width: 100%;
+				min-height: 52px;
+				font-size: 16.5px;
+				background: var(--brand);
+				color: var(--brand-ink);
+			}
+			.btn-secondary {
+				width: 100%;
+				min-height: 48px;
+				font-size: 15.5px;
+				background: var(--surface);
+				color: var(--text);
+				border: 1px solid var(--line);
+			}
+			.btn-danger {
+				color: var(--late);
+				background: var(--late-soft);
+				border: 0;
+			}
+			.btn svg {
+				width: 19px;
+				height: 19px;
+				stroke-width: 2;
+			}
+
+			/* FAB */
+			.fab {
+				position: fixed;
+				right: calc(50% - 215px + 16px);
+				bottom: calc(78px + var(--safe-b));
+				width: 56px;
+				height: 56px;
+				border-radius: 50%;
+				background: var(--brand);
+				color: #fff;
+				box-shadow: var(--shadow-2);
+				display: grid;
+				place-items: center;
+				z-index: 15;
+				animation: pop var(--dur-mid) var(--ease-back) both;
+			}
+			@media (max-width: 460px) {
+				.fab {
+					right: 16px;
+				}
+			}
+			.fab:active {
+				transform: scale(0.92);
+			}
+			.fab svg {
+				width: 26px;
+				height: 26px;
+				stroke-width: 2.2;
+			}
+
+			/* ============================================================
+   7. ANIMAZIONI — solo transform + opacity
+   ============================================================ */
+			@keyframes fadeUp {
+				from {
+					opacity: 0;
+					transform: translate3d(0, 14px, 0) scale(0.985);
+				}
+				to {
+					opacity: 1;
+					transform: none;
+				}
+			}
+			@keyframes pop {
+				from {
+					opacity: 0;
+					transform: scale(0.7);
+				}
+				to {
+					opacity: 1;
+					transform: scale(1);
+				}
+			}
+			@keyframes sheetIn {
+				from {
+					transform: translate3d(0, 100%, 0);
+				}
+				to {
+					transform: translate3d(0, 0, 0);
+				}
+			}
+			@keyframes sheetOut {
+				from {
+					transform: translate3d(0, 0, 0);
+				}
+				to {
+					transform: translate3d(0, 100%, 0);
+				}
+			}
+			@keyframes fadeIn {
+				from {
+					opacity: 0;
+				}
+				to {
+					opacity: 1;
+				}
+			}
+			@keyframes fadeOut {
+				from {
+					opacity: 1;
+				}
+				to {
+					opacity: 0;
+				}
+			}
+			@keyframes checkBurst {
+				0% {
+					opacity: 0;
+					transform: scale(0.4);
+				}
+				45% {
+					opacity: 1;
+					transform: scale(1.12);
+				}
+				100% {
+					opacity: 0;
+					transform: scale(1.5);
+				}
+			}
+			@keyframes toastIn {
+				from {
+					opacity: 0;
+					transform: translate3d(0, 18px, 0);
+				}
+				to {
+					opacity: 1;
+					transform: none;
+				}
+			}
+			@keyframes cardLeave {
+				to {
+					opacity: 0;
+					transform: translate3d(0, -8px, 0) scale(0.96);
+				}
+			}
+			@keyframes rowIn {
+				from {
+					opacity: 0;
+					transform: translate3d(-10px, 0, 0);
+				}
+				to {
+					opacity: 1;
+					transform: none;
+				}
+			}
+
+			/* entrata in cascata delle card: delay dall'indice */
+			.stagger > * {
+				animation: fadeUp var(--dur-slow) var(--ease-out) both;
+				animation-delay: calc(var(--i, 0) * var(--stagger));
+			}
+			.card.leaving {
+				animation: cardLeave var(--dur-mid) var(--ease-in) forwards;
+				pointer-events: none;
+			}
+
+			/* Transizione di vista (View Transitions API) */
+			::view-transition-old(root) {
+				animation: vtOut var(--dur-mid) var(--ease-in) both;
+			}
+			::view-transition-new(root) {
+				animation: vtIn var(--dur-mid) var(--ease-out) both;
+			}
+			@keyframes vtOut {
+				to {
+					opacity: 0;
+					transform: translate3d(-16px, 0, 0);
+				}
+			}
+			@keyframes vtIn {
+				from {
+					opacity: 0;
+					transform: translate3d(16px, 0, 0);
+				}
+			}
+			html[data-nav='back']::view-transition-old(root) {
+				animation: vtOutBack var(--dur-mid) var(--ease-in) both;
+			}
+			html[data-nav='back']::view-transition-new(root) {
+				animation: vtInBack var(--dur-mid) var(--ease-out) both;
+			}
+			@keyframes vtOutBack {
+				to {
+					opacity: 0;
+					transform: translate3d(16px, 0, 0);
+				}
+			}
+			@keyframes vtInBack {
+				from {
+					opacity: 0;
+					transform: translate3d(-16px, 0, 0);
+				}
+			}
+
+			/* conferma cura: badge che esplode sopra la card */
+			.burst {
+				position: absolute;
+				inset: 0;
+				display: grid;
+				place-items: center;
+				pointer-events: none;
+				z-index: 5;
+			}
+			.burst span {
+				font-size: 56px;
+				animation: checkBurst 520ms var(--ease-out) forwards;
+			}
+
+			/* ============================================================
+   8. ACCESSIBILITÀ MOVIMENTO — obbligatorio
+   ============================================================ */
+			@media (prefers-reduced-motion: reduce) {
+				*,
+				*::before,
+				*::after {
+					animation-duration: 1ms !important;
+					animation-delay: 0ms !important;
+					animation-iteration-count: 1 !important;
+					transition-duration: 1ms !important;
+					scroll-behavior: auto !important;
+				}
+				::view-transition-old(root),
+				::view-transition-new(root) {
+					animation: none;
+				}
+				.btn:active {
+					transform: none;
+				}
+			}
+
+			/* ============================================================
+   9. BOTTOM SHEET
+   ============================================================ */
+			.backdrop {
+				position: fixed;
+				inset: 0;
+				z-index: 40;
+				background: rgba(12, 25, 17, 0.42);
+				animation: fadeIn var(--dur-mid) var(--ease-out) both;
+			}
+			.backdrop.closing {
+				animation: fadeOut var(--dur-fast) var(--ease-in) forwards;
+			}
+			/* Centraggio con margin-inline:auto, NON con translateX(-50%):
+   i keyframes sheetIn/sheetOut usano transform e lo azzererebbero. */
+			.sheet {
+				position: fixed;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				z-index: 41;
+				width: min(430px, 100%);
+				margin-inline: auto;
+				background: var(--surface);
+				border-radius: var(--r-xl) var(--r-xl) 0 0;
+				padding: 10px 18px calc(22px + var(--safe-b));
+				box-shadow: var(--shadow-2);
+				max-height: 88vh;
+				overflow: auto;
+			}
+			.sheet-anim {
+				animation: sheetIn var(--dur-mid) var(--ease-out) both;
+			}
+			.sheet-anim.closing {
+				animation: sheetOut var(--dur-fast) var(--ease-in) forwards;
+			}
+			.grabber {
+				width: 38px;
+				height: 4px;
+				border-radius: 2px;
+				background: var(--line);
+				margin: 0 auto 14px;
+			}
+			.sheet h2 {
+				font-size: 19px;
+				margin-bottom: 4px;
+				letter-spacing: -0.01em;
+			}
+			.sheet .hint {
+				font-size: 13px;
+				color: var(--text-mute);
+				margin-bottom: 14px;
+			}
+
+			/* ============================================================
+   10. FORM
+   ============================================================ */
+			.field {
+				margin-bottom: 14px;
+			}
+			.field label {
+				display: block;
+				font-size: 13px;
+				font-weight: 650;
+				color: var(--text-dim);
+				margin-bottom: 6px;
+			}
+			.field input,
+			.field select,
+			.field textarea {
+				width: 100%;
+				padding: 13px 14px;
+				border-radius: var(--r-md);
+				border: 1px solid var(--line);
+				background: var(--surface);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.field input:focus,
+			.field select:focus,
+			.field textarea:focus {
+				outline: 2px solid var(--brand);
+				outline-offset: -1px;
+			}
+			.field .row {
+				display: flex;
+				gap: 10px;
+			}
+			.field .row > * {
+				flex: 1;
+			}
+			.seg {
+				display: flex;
+				gap: 8px;
+			}
+			.seg button {
+				flex: 1;
+				padding: 12px;
+				border-radius: var(--r-md);
+				border: 1px solid var(--line);
+				background: var(--surface);
+				font-weight: 650;
+				font-size: 14.5px;
+				transition:
+					transform var(--dur-fast) var(--ease-out),
+					background-color var(--dur-fast) linear,
+					color var(--dur-fast) linear;
+			}
+			.seg button:active {
+				transform: scale(0.97);
+			}
+			.seg button[aria-pressed='true'] {
+				background: var(--brand);
+				color: #fff;
+				border-color: var(--brand);
+			}
+			.seg button.w[aria-pressed='true'] {
+				background: var(--water);
+				border-color: var(--water);
+			}
+			.seg button.f[aria-pressed='true'] {
+				background: var(--fert);
+				border-color: var(--fert);
+			}
+
+			/* switch */
+			.switch {
+				width: 50px;
+				height: 30px;
+				border-radius: 999px;
+				background: var(--line);
+				position: relative;
+				flex: none;
+				transition: background-color var(--dur-fast) linear;
+			}
+			.switch[aria-checked='true'] {
+				background: var(--winter);
+			}
+			.switch i {
+				position: absolute;
+				top: 3px;
+				left: 3px;
+				width: 24px;
+				height: 24px;
+				border-radius: 50%;
+				background: #fff;
+				box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.switch[aria-checked='true'] i {
+				transform: translateX(20px);
+			}
+
+			/* ============================================================
+   11. IMPOSTAZIONI / BLOCCHI
+   ============================================================ */
+			.group {
+				background: var(--surface);
+				border: 1px solid var(--line);
+				border-radius: var(--r-lg);
+				overflow: hidden;
+				margin-bottom: 14px;
+				box-shadow: var(--shadow-1);
+			}
+			.group > .item {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				padding: 14px;
+				border-bottom: 1px solid var(--line);
+				width: 100%;
+				text-align: left;
+			}
+			.group > .item:last-child {
+				border-bottom: 0;
+			}
+			.item .t {
+				flex: 1;
+				min-width: 0;
+			}
+			.item .t b {
+				display: block;
+				font-size: 15px;
+				font-weight: 650;
+			}
+			.item .t small {
+				color: var(--text-mute);
+				font-size: 12.5px;
+				display: block;
+				margin-top: 1px;
+			}
+			button.item {
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			button.item:active {
+				transform: scale(0.985);
+			}
+			.group-title {
+				font-size: 12.5px;
+				font-weight: 700;
+				color: var(--text-mute);
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				margin: 18px 4px 8px;
+			}
+
+			/* ============================================================
+   12. BADGE INVERNO — deve dare fastidio a maggio
+   ============================================================ */
+			.winter-strip {
+				display: none;
+				align-items: center;
+				gap: 8px;
+				background: var(--winter-soft);
+				color: var(--winter);
+				border: 1px solid color-mix(in srgb, var(--winter) 25%, transparent);
+				border-radius: var(--r-md);
+				padding: 9px 12px;
+				font-size: 13px;
+				font-weight: 600;
+				margin-bottom: 12px;
+				animation: fadeUp var(--dur-mid) var(--ease-out) both;
+			}
+			body[data-winter='1'] .winter-strip {
+				display: flex;
+			}
+			.winter-chip {
+				display: none;
+				align-items: center;
+				gap: 5px;
+				background: var(--winter-soft);
+				color: var(--winter);
+				font-size: 11.5px;
+				font-weight: 700;
+				padding: 4px 8px;
+				border-radius: 999px;
+			}
+			body[data-winter='1'] .winter-chip {
+				display: inline-flex;
+			}
+
+			/* ============================================================
+   13. TIMELINE STORICO
+   ============================================================ */
+			/* Lo storico scrolla dentro di sé: con 200 eventi il resto della pagina
+   (statistiche, elimina pianta) resta raggiungibile.
+   Lo scroll sta sul WRAPPER, non su .timeline: la linea verticale è un
+   ::before con top/bottom e dentro un contenitore scrollabile si
+   fermerebbe all'altezza visibile invece di seguire tutti gli eventi. */
+			.tl-scroll {
+				max-height: 340px;
+				overflow-y: auto;
+				overscroll-behavior: contain;
+				scrollbar-width: thin;
+				margin: 0 -2px;
+				padding: 0 2px;
+			}
+			.timeline {
+				position: relative;
+				padding-left: 26px;
+				margin-top: 6px;
+			}
+			.timeline::before {
+				content: '';
+				position: absolute;
+				left: 8px;
+				top: 6px;
+				bottom: 6px;
+				width: 2px;
+				background: var(--line);
+				border-radius: 1px;
+			}
+			.tl-item {
+				position: relative;
+				padding: 10px 0;
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				animation: rowIn var(--dur-mid) var(--ease-out) both;
+				animation-delay: calc(var(--i, 0) * 26ms);
+			}
+			.tl-item.leaving {
+				animation: cardLeave var(--dur-fast) var(--ease-in) forwards;
+			}
+			.tl-dot {
+				position: absolute;
+				left: -22px;
+				top: 16px;
+				width: 12px;
+				height: 12px;
+				border-radius: 50%;
+				border: 2px solid var(--surface);
+			}
+			.tl-dot.water {
+				background: var(--water);
+			}
+			.tl-dot.fert {
+				background: var(--fert);
+			}
+			.tl-item .txt {
+				flex: 1;
+			}
+			.tl-item .txt b {
+				font-size: 14.5px;
+				font-weight: 650;
+			}
+			.tl-item .txt small {
+				display: block;
+				color: var(--text-mute);
+				font-size: 12.5px;
+			}
+			.tl-del {
+				width: 34px;
+				height: 34px;
+				border-radius: 50%;
+				display: grid;
+				place-items: center;
+				color: var(--text-mute);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.tl-del:active {
+				transform: scale(0.85);
+			}
+
+			.stat-grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 10px;
+				margin-top: 4px;
+			}
+			.stat {
+				background: var(--surface-2);
+				border-radius: var(--r-md);
+				padding: 11px 12px;
+			}
+			.stat b {
+				display: block;
+				font-size: 20px;
+				font-weight: 700;
+				letter-spacing: -0.02em;
+			}
+			.stat small {
+				font-size: 11.5px;
+				color: var(--text-mute);
+			}
+
+			/* ============================================================
+   14. WELCOME / QR
+   ============================================================ */
+			.hero {
+				text-align: center;
+				padding: 34px 8px 18px;
+			}
+			.hero .logo {
+				animation: pop var(--dur-slow) var(--ease-back) both;
+			}
+			.hero .logo svg {
+				width: 132px;
+				height: 132px;
+				display: block;
+				margin: 0 auto;
+			}
+			.hero h2 {
+				font-size: 27px;
+				font-weight: 750;
+				letter-spacing: -0.03em;
+				margin-top: 8px;
+			}
+			.hero p {
+				color: var(--text-dim);
+				font-size: 15px;
+				margin-top: 8px;
+			}
+			.token-box {
+				background: var(--surface);
+				border: 1px solid var(--line);
+				border-radius: var(--r-lg);
+				padding: 16px;
+				text-align: center;
+				box-shadow: var(--shadow-1);
+			}
+			.token-code {
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				font-size: 13.5px;
+				word-break: break-all;
+				background: var(--surface-2);
+				padding: 11px;
+				border-radius: var(--r-sm);
+				margin: 10px 0;
+				user-select: all;
+			}
+			.qr-wrap {
+				display: grid;
+				place-items: center;
+				padding: 6px 0 12px;
+			}
+			.qr-wrap svg {
+				width: 172px;
+				height: 172px;
+				background: #fff;
+				padding: 8px;
+				border-radius: 12px;
+				border: 1px solid var(--line);
+				animation: pop var(--dur-slow) var(--ease-back) both;
+			}
+			.warn {
+				display: flex;
+				gap: 9px;
+				background: var(--today-soft);
+				color: var(--today);
+				border-radius: var(--r-md);
+				padding: 11px 12px;
+				font-size: 13px;
+				line-height: 1.4;
+				margin-top: 12px;
+			}
+			.warn svg {
+				width: 18px;
+				height: 18px;
+				flex: none;
+				margin-top: 1px;
+			}
+
+			/* dropzone QR */
+			.drop {
+				border: 2px dashed var(--line);
+				border-radius: var(--r-lg);
+				padding: 26px 16px;
+				text-align: center;
+				color: var(--text-mute);
+				font-size: 14px;
+				background: var(--surface);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.drop:active {
+				transform: scale(0.99);
+			}
+			.drop svg {
+				width: 34px;
+				height: 34px;
+				margin-bottom: 8px;
+				stroke-width: 1.5;
+			}
+
+			/* ============================================================
+   15. BANNER / TUTORIAL INSTALLAZIONE PWA
+   ============================================================ */
+			.install-banner {
+				position: fixed;
+				left: 50%;
+				bottom: calc(94px + var(--safe-b));
+				width: min(430px, 100%);
+				padding: 0 12px;
+				z-index: 30;
+				transform: translateX(-50%);
+			}
+			.install-inner {
+				background: var(--surface);
+				border: 1px solid var(--line);
+				border-radius: var(--r-lg);
+				box-shadow: var(--shadow-2);
+				padding: 13px 14px;
+				display: flex;
+				gap: 12px;
+				align-items: center;
+				animation: fadeUp var(--dur-slow) var(--ease-out) both;
+			}
+			.install-inner .t {
+				flex: 1;
+			}
+			.install-inner b {
+				font-size: 14.5px;
+				display: block;
+			}
+			.install-inner small {
+				font-size: 12.5px;
+				color: var(--text-mute);
+			}
+			.x-btn {
+				width: 30px;
+				height: 30px;
+				border-radius: 50%;
+				display: grid;
+				place-items: center;
+				color: var(--text-mute);
+				transition: transform var(--dur-fast) var(--ease-out);
+			}
+			.x-btn:active {
+				transform: scale(0.85);
+			}
+			.btn-install {
+				background: var(--brand);
+				color: #fff;
+				padding: 10px 14px;
+				border-radius: var(--r-md);
+				font-weight: 650;
+				font-size: 14px;
+				flex: none;
+			}
+
+			/* step tutorial illustrato */
+			.steps {
+				counter-reset: s;
+			}
+			.step {
+				display: flex;
+				gap: 12px;
+				padding: 14px 0;
+				border-bottom: 1px solid var(--line);
+				animation: fadeUp var(--dur-mid) var(--ease-out) both;
+				animation-delay: calc(var(--i, 0) * var(--stagger));
+			}
+			.step:last-child {
+				border-bottom: 0;
+			}
+			.step .n {
+				width: 26px;
+				height: 26px;
+				flex: none;
+				border-radius: 50%;
+				background: var(--brand);
+				color: #fff;
+				display: grid;
+				place-items: center;
+				font-size: 13px;
+				font-weight: 700;
+			}
+			.step .body {
+				flex: 1;
+			}
+			.step .body p {
+				font-size: 14.5px;
+				line-height: 1.45;
+			}
+			.sys-icon {
+				margin-top: 9px;
+				display: inline-flex;
+				align-items: center;
+				gap: 9px;
+				background: var(--surface-2);
+				border: 1px solid var(--line);
+				border-radius: var(--r-md);
+				padding: 8px 12px;
+			}
+			.sys-icon svg {
+				width: 24px;
+				height: 24px;
+			}
+			.sys-icon span {
+				font-size: 13px;
+				font-weight: 600;
+				color: var(--text-dim);
+			}
+
+			/* selettore piattaforma del mockup */
+			.mock-switch {
+				display: flex;
+				gap: 6px;
+				background: var(--surface-2);
+				padding: 4px;
+				border-radius: var(--r-md);
+				margin-bottom: 14px;
+			}
+			.mock-switch button {
+				flex: 1;
+				padding: 9px;
+				border-radius: 10px;
+				font-size: 13px;
+				font-weight: 650;
+				color: var(--text-dim);
+				transition:
+					transform var(--dur-fast) var(--ease-out),
+					background-color var(--dur-fast) linear;
+			}
+			.mock-switch button:active {
+				transform: scale(0.96);
+			}
+			.mock-switch button[aria-pressed='true'] {
+				background: var(--surface);
+				color: var(--text);
+				box-shadow: var(--shadow-1);
+			}
+
+			/* ============================================================
+   16. TOAST
+   ============================================================ */
+			#toast {
+				position: fixed;
+				left: 50%;
+				bottom: calc(90px + var(--safe-b));
+				z-index: 60;
+				transform: translateX(-50%);
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+				align-items: center;
+				pointer-events: none;
+				width: min(430px, 100%);
+				padding: 0 20px;
+			}
+			.toast {
+				/* pillola invertita rispetto al fondo: su tema scuro diventa chiara */
+				background: var(--text);
+				color: var(--bg);
+				border-radius: 999px;
+				padding: 10px 18px;
+				font-size: 14px;
+				font-weight: 600;
+				box-shadow: var(--shadow-2);
+				animation: toastIn var(--dur-mid) var(--ease-back) both;
+			}
+			.toast.out {
+				animation: fadeOut var(--dur-fast) var(--ease-in) forwards;
+			}
+
+			.empty {
+				text-align: center;
+				padding: 48px 20px;
+				color: var(--text-mute);
+			}
+			.empty .ico {
+				font-size: 52px;
+				animation: pop var(--dur-slow) var(--ease-back) both;
+			}
+			.empty .ico svg {
+				width: 96px;
+				height: 96px;
+				display: block;
+				margin: 0 auto;
+			}
+			.empty .ico .badge {
+				font-size: 34px;
+				display: block;
+				margin-top: -14px;
+			}
+
+			.empty p {
+				margin-top: 10px;
+				font-size: 15px;
+			}
+			.section-label {
+				font-size: 12.5px;
+				font-weight: 700;
+				color: var(--text-mute);
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				margin: 6px 4px 10px;
+			}
+			.divider {
+				height: 1px;
+				background: var(--line);
+				margin: 14px 0;
+			}
+			.card-rel {
+				position: relative;
+			}
+		</style>
+	</head>
+	<body data-winter="0">
+		<!-- ============================================================
+     LOGO — definito una volta come <symbol>, riusato con <use>.
+     Papà pianta: occhiali da sole, baffo, vaso di terracotta.
+     Colori dalle CSS variables, così segue la palette.
+     ============================================================ -->
+		<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+			<symbol id="pd-logo" viewBox="0 0 64 64">
+				<!-- foglie: disegnate prima, il vaso ne copre la base.
+         Le laterali sono ellissi ruotate a 45° (tonde, senza punta),
+         la centrale è il germoglio alto e turgido. -->
+				<ellipse
+					cx="23.4"
+					cy="30.9"
+					rx="6.5"
+					ry="3.8"
+					transform="rotate(45 23.4 30.9)"
+					fill="var(--leaf-2)"
+				/>
+				<ellipse
+					cx="40.6"
+					cy="30.9"
+					rx="6.5"
+					ry="3.8"
+					transform="rotate(-45 40.6 30.9)"
+					fill="var(--brand)"
+				/>
+				<path d="M32 41c6.4-8 6.4-21 0-33-6.4 12-6.4 25 0 33Z" fill="var(--leaf-3)" />
+				<!-- vaso -->
+				<path
+					d="M17 41h30l-3.6 19.2A3 3 0 0 1 40.4 63H23.6a3 3 0 0 1-3-2.8L17 41Z"
+					fill="var(--pot)"
+				/>
+				<rect x="13.5" y="35" width="37" height="9.5" rx="4" fill="var(--pot-rim)" />
+				<!-- occhiali da sole, generosi -->
+				<g fill="var(--ink)">
+					<rect x="19" y="44.6" width="11.8" height="8.2" rx="3.4" />
+					<rect x="33.2" y="44.6" width="11.8" height="8.2" rx="3.4" />
+					<rect x="30.4" y="47.2" width="3.2" height="2.2" rx="1.1" />
+				</g>
+				<!-- baffo -->
+				<path
+					d="M32 54c-1.85-2.55-5.65-2.9-7.6.35 2.05 2.3 5.75 1.5 7.6-.35Z"
+					fill="var(--stache)"
+				/>
+				<path
+					d="M32 54c1.85-2.55 5.65-2.9 7.6.35-2.05 2.3-5.75 1.5-7.6-.35Z"
+					fill="var(--stache)"
+				/>
+				<!-- catenina d'oro: arco sottile + ciondolo (a pallini si impastava col baffo) -->
+				<path
+					d="M22.5 57.2Q32 62 41.5 57.2"
+					stroke="var(--gold)"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					fill="none"
+				/>
+				<circle cx="32" cy="61" r="2" fill="var(--gold)" />
+			</symbol>
+		</svg>
+
+		<div id="app">
+			<!-- ========== WELCOME ========== -->
+			<section class="screen" id="s-welcome">
+				<div class="scroll">
+					<div class="hero">
+						<div class="logo">
+							<svg viewBox="0 0 64 64" aria-hidden="true"><use href="#pd-logo" /></svg>
+						</div>
+						<h2>PlantDaddy</h2>
+						<p>
+							Annaffiature e concimazioni delle tue piante di casa.<br />Nessun account, nessuna
+							email.
+						</p>
+					</div>
+					<div class="token-box">
+						<div style="font-size: 13px; font-weight: 650; color: var(--text-dim)">
+							Il tuo codice di sessione
+						</div>
+						<div class="token-code" id="welcomeToken"></div>
+						<div class="qr-wrap" id="welcomeQr"></div>
+						<div style="display: flex; gap: 8px">
+							<button class="btn btn-secondary" onclick="copyToken()">Copia codice</button>
+							<button class="btn btn-secondary" onclick="downloadQr()">Scarica QR</button>
+						</div>
+					</div>
+					<div class="warn">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+						>
+							<path
+								d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"
+							/>
+						</svg>
+						<div>
+							<b>Conserva questo codice.</b> È l'unica chiave dei tuoi dati: chi ce l'ha vede le tue
+							piante, e se lo perdi non c'è modo di recuperarlo. Salva il QR nelle foto.
+						</div>
+					</div>
+					<div style="margin-top: 16px; display: flex; flex-direction: column; gap: 9px">
+						<button class="btn btn-primary" onclick="nav('today')">
+							Ho salvato il codice, iniziamo
+						</button>
+						<button class="btn btn-secondary" onclick="nav('restore')">Ho già un codice</button>
+					</div>
+				</div>
+			</section>
+
+			<!-- ========== RIPRISTINO ========== -->
+			<section class="screen" id="s-restore">
+				<header class="topbar">
+					<button class="back-btn" onclick="nav('welcome', 1)" aria-label="Indietro">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							width="20"
+						>
+							<path d="M15 18l-6-6 6-6" />
+						</svg>
+					</button>
+					<h1>Ripristina sessione</h1>
+				</header>
+				<div class="scroll">
+					<p style="color: var(--text-dim); font-size: 14.5px; margin-bottom: 16px">
+						Incolla il codice che avevi salvato, oppure carica l'immagine del QR code: viene letta
+						qui sul telefono, non viene caricata da nessuna parte.
+					</p>
+					<div class="field">
+						<label for="restoreInput">Codice sessione</label>
+						<input
+							id="restoreInput"
+							placeholder="es. 7f3c1a20-9b4e-4d61-8a02-c5e7d1f39a44"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+					</div>
+					<button class="btn btn-primary" onclick="doRestore()">Ripristina</button>
+					<div style="display: flex; align-items: center; gap: 12px; margin: 20px 0">
+						<div style="flex: 1; height: 1px; background: var(--line)"></div>
+						<span style="font-size: 12px; color: var(--text-mute); font-weight: 650">OPPURE</span>
+						<div style="flex: 1; height: 1px; background: var(--line)"></div>
+					</div>
+					<button class="drop" onclick="qrFile.click()">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<rect x="3" y="3" width="7" height="7" rx="1" />
+							<rect x="14" y="3" width="7" height="7" rx="1" />
+							<rect x="3" y="14" width="7" height="7" rx="1" />
+							<path d="M14 14h3v3h-3zM19 19h2M14 21h3" />
+						</svg>
+						<div>
+							<b style="color: var(--text)">Carica l'immagine del QR</b><br />PNG o JPG dalla
+							galleria
+						</div>
+					</button>
+					<input type="file" id="qrFile" accept="image/*" hidden onchange="fakeQrDecode(this)" />
+				</div>
+			</section>
+
+			<!-- ========== OGGI ========== -->
+			<section class="screen" id="s-today">
+				<header class="topbar topbar-home">
+					<span class="logo-badge"
+						><svg class="logo-mark" aria-hidden="true"><use href="#pd-logo" /></svg
+					></span>
+					<div class="brand">PlantDaddy<small id="dueSummary"></small></div>
+					<span class="winter-chip">❄️ ×<span id="chipFactor">1.5</span></span>
+					<div class="date" id="todayDate"></div>
+				</header>
+				<div class="scroll">
+					<div class="winter-strip">
+						❄️
+						<span style="flex: 1"
+							>Modalità inverno attiva: intervalli ×<b id="stripFactor">1.5</b></span
+						>
+						<button class="btn-mini" style="border-style: solid" onclick="nav('settings')">
+							Gestisci
+						</button>
+					</div>
+					<div id="todayList" class="stagger"></div>
+				</div>
+				<nav class="tabbar" data-tab="today"></nav>
+			</section>
+
+			<!-- ========== LE MIE PIANTE ========== -->
+			<section class="screen" id="s-plants">
+				<header class="topbar">
+					<svg class="logo-mark sm" aria-hidden="true"><use href="#pd-logo" /></svg>
+					<h1>Le mie piante</h1>
+					<span class="winter-chip">❄️ ×<span class="factorTxt">1.5</span></span>
+				</header>
+				<div class="scroll">
+					<div class="winter-strip">
+						❄️
+						<span style="flex: 1"
+							>Modalità inverno attiva: intervalli ×<b class="factorTxt">1.5</b></span
+						>
+					</div>
+					<div id="plantsList" class="stagger"></div>
+				</div>
+				<button class="fab" onclick="openPlantForm(null)" aria-label="Aggiungi pianta">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round">
+						<path d="M12 5v14M5 12h14" />
+					</svg>
+				</button>
+				<nav class="tabbar" data-tab="plants"></nav>
+			</section>
+
+			<!-- ========== DETTAGLIO PIANTA ========== -->
+			<section class="screen" id="s-detail">
+				<header class="topbar">
+					<button class="back-btn" onclick="nav('plants', 1)" aria-label="Indietro">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							width="20"
+						>
+							<path d="M15 18l-6-6 6-6" />
+						</svg>
+					</button>
+					<h1 id="detailName">Pianta</h1>
+					<button class="back-btn" onclick="openPlantForm(currentPlantId)" aria-label="Modifica">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							width="18"
+						>
+							<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+						</svg>
+					</button>
+				</header>
+				<div class="scroll" id="detailBody"></div>
+				<nav class="tabbar" data-tab="plants"></nav>
+			</section>
+
+			<!-- ========== IMPOSTAZIONI ========== -->
+			<section class="screen" id="s-settings">
+				<header class="topbar">
+					<svg class="logo-mark sm" aria-hidden="true"><use href="#pd-logo" /></svg>
+					<h1>Impostazioni</h1>
+				</header>
+				<div class="scroll">
+					<div class="group-title">Notifiche</div>
+					<div class="group">
+						<div class="item">
+							<div class="t">
+								<b>Notifica giornaliera</b
+								><small>Una sola notifica con tutte le piante da curare</small>
+							</div>
+							<button
+								class="switch"
+								id="notifSwitch"
+								role="switch"
+								aria-checked="true"
+								onclick="toggleNotif()"
+							>
+								<i></i>
+							</button>
+						</div>
+						<div class="item">
+							<div class="t"><b>Orario</b><small>Quando ricevere il riepilogo</small></div>
+							<input
+								type="time"
+								value="09:00"
+								id="notifTime"
+								style="
+									width: 120px;
+									padding: 9px;
+									border-radius: 10px;
+									border: 1px solid var(--line);
+									background: var(--surface);
+								"
+								onchange="
+									state.notifyTime = this.value;
+									toast('Notifica alle ' + this.value);
+								"
+							/>
+						</div>
+					</div>
+
+					<div class="group-title">Stagione</div>
+					<div class="group">
+						<div class="item">
+							<div class="t">
+								<b>❄️ Modalità inverno</b><small>D'inverno le piante bevono molto meno</small>
+							</div>
+							<button
+								class="switch"
+								id="winterSwitch"
+								role="switch"
+								aria-checked="false"
+								onclick="toggleWinter()"
+							>
+								<i></i>
+							</button>
+						</div>
+						<div class="item">
+							<div class="t">
+								<b>Moltiplicatore</b><small>Tutti gli intervalli vengono allungati</small>
+							</div>
+							<select
+								id="winterFactor"
+								style="
+									width: 100px;
+									padding: 9px;
+									border-radius: 10px;
+									border: 1px solid var(--line);
+									background: var(--surface);
+								"
+								onchange="setFactor(this.value)"
+							>
+								<option value="1.2">×1.2</option>
+								<option value="1.5" selected>×1.5</option>
+								<option value="2">×2</option>
+								<option value="2.5">×2.5</option>
+							</select>
+						</div>
+					</div>
+
+					<div class="group-title">Sessione</div>
+					<div class="group">
+						<button class="item" onclick="openTokenSheet()">
+							<div class="t"><b>Il mio codice</b><small id="tokenPreview">—</small></div>
+							<svg
+								viewBox="0 0 24 24"
+								width="18"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								style="color: var(--text-mute)"
+							>
+								<path d="M9 18l6-6-6-6" />
+							</svg>
+						</button>
+						<button class="item" onclick="nav('restore')">
+							<div class="t">
+								<b>Usa un altro codice</b><small>Ripristina la sessione su questo device</small>
+							</div>
+							<svg
+								viewBox="0 0 24 24"
+								width="18"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								style="color: var(--text-mute)"
+							>
+								<path d="M9 18l6-6-6-6" />
+							</svg>
+						</button>
+					</div>
+
+					<div class="group-title">Backup</div>
+					<div class="group">
+						<button class="item" onclick="exportBackup()">
+							<div class="t">
+								<b>Esporta backup</b><small>JSON con piante, storico e impostazioni</small>
+							</div>
+							<svg
+								viewBox="0 0 24 24"
+								width="19"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								style="color: var(--text-mute)"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+							</svg>
+						</button>
+						<button class="item" onclick="importFile.click()">
+							<div class="t">
+								<b>Importa backup</b><small>Sostituisce i dati della sessione corrente</small>
+							</div>
+							<svg
+								viewBox="0 0 24 24"
+								width="19"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								style="color: var(--text-mute)"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+							</svg>
+						</button>
+						<input
+							type="file"
+							id="importFile"
+							accept="application/json"
+							hidden
+							onchange="importBackup(this)"
+						/>
+					</div>
+
+					<div class="group-title">App</div>
+					<div class="group">
+						<button class="item" onclick="openInstall()">
+							<div class="t">
+								<b>Installa app</b
+								><small id="installState">Aggiungi PlantDaddy alla schermata Home</small>
+							</div>
+							<svg
+								viewBox="0 0 24 24"
+								width="18"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								style="color: var(--text-mute)"
+							>
+								<path d="M9 18l6-6-6-6" />
+							</svg>
+						</button>
+					</div>
+
+					<p style="text-align: center; color: var(--text-mute); font-size: 12px; margin-top: 22px">
+						Mockup Fase 1 · dati finti in memoria
+					</p>
+				</div>
+				<nav class="tabbar" data-tab="settings"></nav>
+			</section>
+		</div>
+
+		<div id="toast"></div>
+		<div id="overlays"></div>
+
+		<script>
+			/* ============================================================
+   STATO — dati finti in memoria
+   ============================================================ */
+			const DAY = 86400000;
+			const pad = (n) => String(n).padStart(2, '0');
+			const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+			const parse = (s) => {
+				const [y, m, d] = s.split('-').map(Number);
+				return new Date(y, m - 1, d);
+			};
+			const TODAY = iso(new Date());
+			const addDays = (s, n) => {
+				const d = parse(s);
+				d.setDate(d.getDate() + n);
+				return iso(d);
+			};
+			const daysFromToday = (s) => Math.round((parse(s) - parse(TODAY)) / DAY);
+			const ago = (n) => addDays(TODAY, -n);
+
+			let uid = 100;
+			const ev = (type, days, note) => ({ id: ++uid, type, date: ago(days), note: note || '' });
+
+			const state = {
+				token: crypto.randomUUID ? crypto.randomUUID() : '7f3c1a20-9b4e-4d61-8a02-c5e7d1f39a44',
+				winter: false,
+				factor: 1.5,
+				notify: true,
+				notifyTime: '09:00',
+				installDismissed: false,
+				installed: false,
+				mockPlatform: 'android-prompt', // android-prompt | ios | android-manual
+				plants: [
+					{
+						id: 1,
+						name: 'Monstera',
+						emoji: '🌿',
+						room: 'Salotto',
+						water: 7,
+						fert: 30,
+						snooze: null,
+						events: [
+							ev('water', 8),
+							ev('water', 15),
+							ev('water', 23, 'Terriccio molto asciutto'),
+							ev('fert', 34),
+							ev('water', 31)
+						]
+					},
+					{
+						id: 2,
+						name: 'Pothos',
+						emoji: '🍃',
+						room: 'Camera',
+						water: 6,
+						fert: 45,
+						snooze: null,
+						events: [ev('water', 6), ev('water', 13), ev('water', 19), ev('fert', 50)]
+					},
+					{
+						id: 3,
+						name: 'Ficus Lyrata',
+						emoji: '🪴',
+						room: 'Salotto',
+						water: 9,
+						fert: 30,
+						snooze: null,
+						events: [
+							ev('water', 12, 'Poca, aveva ancora umido'),
+							ev('water', 21),
+							ev('fert', 26),
+							ev('water', 30)
+						]
+					},
+					{
+						id: 4,
+						name: 'Sansevieria',
+						emoji: '🌵',
+						room: 'Ingresso',
+						water: 21,
+						fert: null,
+						snooze: null,
+						events: [ev('water', 9), ev('water', 32)]
+					},
+					{
+						id: 5,
+						name: 'Calathea',
+						emoji: '🌱',
+						room: 'Bagno',
+						water: 4,
+						fert: 21,
+						snooze: null,
+						events: [
+							ev('water', 2),
+							ev('water', 6),
+							ev('water', 11),
+							ev('fert', 18, 'Concime liquido diluito')
+						]
+					},
+					{
+						id: 6,
+						name: 'Zamioculcas',
+						emoji: '🪴',
+						room: 'Studio',
+						water: 18,
+						fert: 60,
+						snooze: null,
+						events: [ev('water', 3), ev('water', 22)]
+					}
+				]
+			};
+
+			/* ============================================================
+   DERIVAZIONI — le date "ultima cura" NON sono mai campi scritti:
+   si ricavano sempre dallo storico eventi.
+   ============================================================ */
+			const factor = () => (state.winter ? state.factor : 1);
+			const interval = (plant, type) =>
+				Math.round((type === 'water' ? plant.water : plant.fert) * factor());
+
+			function lastEvent(plant, type) {
+				return (
+					plant.events
+						.filter((e) => e.type === type)
+						.sort((a, b) => (a.date < b.date ? 1 : -1))[0] || null
+				);
+			}
+			function nextDue(plant, type) {
+				const base = type === 'water' ? plant.water : plant.fert;
+				if (!base) return null;
+				const last = lastEvent(plant, type);
+				return last ? addDays(last.date, interval(plant, type)) : TODAY;
+			}
+			/** giorni alla prossima cura (negativo = in ritardo), snooze incluso */
+			function dueIn(plant) {
+				const ds = ['water', 'fert']
+					.map((t) => nextDue(plant, t))
+					.filter(Boolean)
+					.map(daysFromToday);
+				let d = Math.min(...ds);
+				if (plant.snooze) d = Math.max(d, daysFromToday(plant.snooze));
+				return d;
+			}
+			function statusOf(plant) {
+				const d = dueIn(plant);
+				if (plant.snooze && daysFromToday(plant.snooze) > 0 && d > 0) return 'snoozed';
+				if (d < 0) return 'late';
+				if (d === 0) return 'today';
+				if (d <= 3) return 'soon';
+				return 'ok';
+			}
+			const STATUS_TXT = {
+				late: (d) => `In ritardo di ${Math.abs(d)} ${Math.abs(d) === 1 ? 'giorno' : 'giorni'}`,
+				today: () => 'Da fare oggi',
+				soon: (d) => `Tra ${d} ${d === 1 ? 'giorno' : 'giorni'}`,
+				ok: (d) => `Tra ${d} giorni`,
+				snoozed: (d) => (d === 1 ? 'Rimandata a domani' : `Rimandata di ${d} giorni`)
+			};
+			/** intervallo medio reale fra le ultime annaffiature */
+			function avgInterval(plant, type = 'water') {
+				const ds = plant.events
+					.filter((e) => e.type === type)
+					.map((e) => e.date)
+					.sort()
+					.slice(-6);
+				if (ds.length < 2) return null;
+				let tot = 0;
+				for (let i = 1; i < ds.length; i++)
+					tot += Math.round((parse(ds[i]) - parse(ds[i - 1])) / DAY);
+				return Math.round(tot / (ds.length - 1));
+			}
+			const fmtDate = (s) =>
+				parse(s).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+			const fmtRel = (s) => {
+				const d = daysFromToday(s);
+				if (d === 0) return 'oggi';
+				if (d === -1) return 'ieri';
+				if (d < 0) return `${Math.abs(d)} giorni fa`;
+				return `fra ${d} giorni`;
+			};
+
+			/* ============================================================
+   NAVIGAZIONE — View Transitions API con fallback silenzioso
+   ============================================================ */
+			const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+			let screen = 'welcome';
+			let currentPlantId = null;
+
+			function nav(id, back) {
+				document.documentElement.dataset.nav = back ? 'back' : 'fwd';
+				const apply = () => {
+					screen = id;
+					document
+						.querySelectorAll('.screen')
+						.forEach((s) => s.classList.toggle('active', s.id === 's' + '-' + id));
+					render();
+					/* .scroll non è un contenitore scrollabile: scorre la PAGINA
+       (topbar e tabbar sono sticky). Va resettato quello, altrimenti
+       la nuova vista si apre nella posizione della precedente. */
+					window.scrollTo(0, 0);
+				};
+				if (document.startViewTransition && !reduce()) document.startViewTransition(apply);
+				else apply();
+			}
+
+			/* tab bar: stesso markup in ogni schermata */
+			const TABS = [
+				[
+					'today',
+					'Home',
+					'<path d="M3 12l2-2m0 0 7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11 2 2m-2-2v10a1 1 0 0 1-1 1h-3m-6 0a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1m-6 0h6"/>'
+				],
+				[
+					'plants',
+					'Piante',
+					'<path d="M12 21v-8m0 0c0-4 3-7 7-7 0 4-3 7-7 7Zm0 0c0-3.5-2.5-6-6-6 0 3.5 2.5 6 6 6Z"/>'
+				],
+				[
+					'settings',
+					'Impostazioni',
+					'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.9 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.9H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z"/>'
+				]
+			];
+			document.querySelectorAll('.tabbar').forEach((bar) => {
+				bar.innerHTML = TABS.map(
+					([id, label, path]) => `
+    <button ${bar.dataset.tab === id ? 'aria-current="page"' : ''} onclick="nav('${id}')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${path}</svg>
+      <span>${label}</span><i class="dot"></i>
+    </button>`
+				).join('');
+			});
+
+			/* ============================================================
+   RENDER
+   ============================================================ */
+			function render() {
+				document.body.dataset.winter = state.winter ? '1' : '0';
+				document.querySelectorAll('.factorTxt').forEach((e) => (e.textContent = state.factor));
+				chipFactor.textContent = state.factor;
+				stripFactor.textContent = state.factor;
+				todayDate.textContent = new Date().toLocaleDateString('it-IT', {
+					weekday: 'short',
+					day: 'numeric',
+					month: 'short'
+				});
+				const nDue = state.plants.filter((p) => ['late', 'today'].includes(statusOf(p))).length;
+				dueSummary.textContent = nDue
+					? `${nDue} ${nDue === 1 ? 'pianta' : 'piante'} da curare`
+					: 'niente da fare oggi';
+				tokenPreview.textContent = state.token.slice(0, 13) + '…';
+				installState.textContent = state.installed
+					? 'App già installata'
+					: 'Aggiungi PlantDaddy alla schermata Home';
+
+				if (screen === 'today') renderToday();
+				if (screen === 'plants') renderPlants();
+				if (screen === 'detail') renderDetail();
+				renderInstallBanner();
+			}
+
+			function badge(plant) {
+				const st = statusOf(plant),
+					d = dueIn(plant);
+				return `<span class="pill ${st}">${STATUS_TXT[st](d)}</span>`;
+			}
+			function needs(plant) {
+				const out = [];
+				['water', 'fert'].forEach((t) => {
+					const nd = nextDue(plant, t);
+					if (nd && daysFromToday(nd) <= 0) out.push(t);
+				});
+				return out;
+			}
+
+			/* --- vista OGGI: solo piante in scadenza o scadute (snooze escluso) --- */
+			function renderToday() {
+				const due = state.plants
+					.filter((p) => statusOf(p) === 'late' || statusOf(p) === 'today')
+					.sort((a, b) => dueIn(a) - dueIn(b));
+
+				if (!due.length) {
+					todayList.innerHTML = `<div class="empty">
+      <div class="ico"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#pd-logo"/></svg><span class="badge">✅</span></div>
+      <p>Tutto a posto.<br>Nessuna pianta da curare oggi.</p></div>`;
+					return;
+				}
+				todayList.innerHTML = due
+					.map((p, i) => {
+						const n = needs(p);
+						const w = n.includes('water'),
+							f = n.includes('fert');
+						return `
+    <article class="card card-rel" style="--i:${i}" data-plant="${p.id}">
+      <div class="card-head" onclick="openDetail(${p.id})">
+        <div class="avatar">${p.emoji}</div>
+        <div class="card-title">
+          <div class="name">${p.name}</div>
+          <div class="room">${p.room || ''}</div>
+        </div>
+        ${badge(p)}
+      </div>
+      <div class="meta-row">
+        ${w ? `<span class="pill water">💧 annaffiatura ${fmtRel(nextDue(p, 'water'))}</span>` : ''}
+        ${f ? `<span class="pill fert">🌾 concime ${fmtRel(nextDue(p, 'fert'))}</span>` : ''}
+      </div>
+      <!-- PRIMARIO: un solo tap, nessuna conferma -->
+      <div class="actions">
+        ${w ? `<button class="btn btn-care" onclick="care(${p.id},'water',this)">💧 Annaffiata</button>` : ''}
+        ${f ? `<button class="btn btn-care fert" onclick="care(${p.id},'fert',this)">🌾 Concimata</button>` : ''}
+        <button class="btn btn-ghost" onclick="snooze(${p.id})" title="Rimanda a domani" aria-label="Rimanda a domani">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l2.5 2.5"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v5h5"/></svg>
+        </button>
+      </div>
+      <!-- SECONDARIO: defilato, non intralcia il flusso rapido -->
+      <div style="margin-top:9px;display:flex;justify-content:flex-end">
+        <button class="btn btn-mini" onclick="openEventSheet(${p.id})">🗓 + evento passato</button>
+      </div>
+    </article>`;
+					})
+					.join('');
+			}
+
+			/* --- vista LISTA COMPLETA --- */
+			function renderPlants() {
+				const sorted = [...state.plants].sort((a, b) => dueIn(a) - dueIn(b));
+				plantsList.innerHTML = sorted
+					.map(
+						(p, i) => `
+    <article class="card" style="--i:${i}" onclick="openDetail(${p.id})">
+      <div class="card-head">
+        <div class="avatar">${p.emoji}</div>
+        <div class="card-title">
+          <div class="name">${p.name}</div>
+          <div class="room">${p.room || '—'}</div>
+        </div>
+        ${badge(p)}
+      </div>
+      <div class="meta-row">
+        <span class="pill water">💧 ogni ${interval(p, 'water')}g</span>
+        ${p.fert ? `<span class="pill fert">🌾 ogni ${interval(p, 'fert')}g</span>` : `<span class="pill ok">🌾 no concime</span>`}
+      </div>
+    </article>`
+					)
+					.join('');
+			}
+
+			/* --- DETTAGLIO + timeline --- */
+			function openDetail(id) {
+				currentPlantId = id;
+				nav('detail');
+			}
+
+			function renderDetail() {
+				const p = state.plants.find((x) => x.id === currentPlantId);
+				if (!p) return;
+				detailName.textContent = p.name;
+				const evs = [...p.events].sort((a, b) => (a.date < b.date ? 1 : -1));
+				const lw = lastEvent(p, 'water'),
+					lf = lastEvent(p, 'fert');
+				const avg = avgInterval(p, 'water');
+				const n = needs(p);
+
+				detailBody.innerHTML = `
+    <div class="winter-strip">❄️ <span style="flex:1">Inverno attivo: intervalli ×${state.factor}</span></div>
+
+    <div class="card" style="--i:0">
+      <div class="card-head">
+        <div class="avatar" style="width:56px;height:56px;font-size:30px">${p.emoji}</div>
+        <div class="card-title">
+          <div class="name" style="font-size:19px">${p.name}</div>
+          <div class="room">${p.room || '—'}</div>
+        </div>
+        ${badge(p)}
+      </div>
+      <div class="actions">
+        <button class="btn btn-care" onclick="care(${p.id},'water',this)">💧 Annaffiata</button>
+        ${p.fert ? `<button class="btn btn-care fert" onclick="care(${p.id},'fert',this)">🌾 Concimata</button>` : ''}
+      </div>
+      <div style="margin-top:9px;display:flex;justify-content:space-between;align-items:center">
+        <button class="btn btn-mini" onclick="openEventSheet(${p.id})">🗓 + evento passato</button>
+        ${n.length ? `<button class="btn btn-mini" onclick="snooze(${p.id})">😴 Rimanda a domani</button>` : ''}
+      </div>
+    </div>
+
+    <div class="group-title">Ritmo</div>
+    <div class="stat-grid" style="--i:1">
+      <div class="stat"><b>${interval(p, 'water')}g</b><small>Intervallo annaffiatura${state.winter ? ' (inverno)' : ''}</small></div>
+      <div class="stat"><b>${avg ? avg + 'g' : '—'}</b><small>Media reale ultime volte</small></div>
+      <div class="stat"><b>${lw ? fmtRel(lw.date) : '—'}</b><small>Ultima annaffiatura</small></div>
+      <div class="stat"><b>${p.fert ? (lf ? fmtRel(lf.date) : 'mai') : '—'}</b><small>Ultima concimazione</small></div>
+    </div>
+    ${
+			avg && Math.abs(avg - interval(p, 'water')) >= 2
+				? `
+      <div class="warn" style="margin-top:12px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <div>In pratica la annaffi ogni <b>${avg} giorni</b>, non ogni ${interval(p, 'water')}. L'intervallo impostato forse non è realistico.</div>
+      </div>`
+				: ''
+		}
+    ${
+			p.snooze && daysFromToday(p.snooze) > 0
+				? `
+      <div class="warn" style="margin-top:12px;background:var(--surface-2);color:var(--text-dim)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg>
+        <div style="flex:1">Rimandata al ${fmtDate(p.snooze)} — non compare fra le cure di oggi.
+          <button class="btn-mini" style="margin-top:6px;border-style:solid" onclick="unsnooze(${p.id})">Annulla rinvio</button></div>
+      </div>`
+				: ''
+		}
+
+    <div class="group-title">Storico (${evs.length} eventi)</div>
+    <div class="card" style="--i:2">
+      ${
+				evs.length
+					? `<div class="tl-scroll"><div class="timeline" id="tl">${evs
+							.map(
+								(e, i) => `
+        <div class="tl-item" style="--i:${i}" data-ev="${e.id}">
+          <span class="tl-dot ${e.type}"></span>
+          <div class="txt">
+            <b>${e.type === 'water' ? '💧 Annaffiata' : '🌾 Concimata'}</b>
+            <small>${fmtDate(e.date)} · ${fmtRel(e.date)}${e.note ? ' · ' + e.note : ''}</small>
+          </div>
+          <button class="tl-del" onclick="delEvent(${p.id},${e.id})" aria-label="Elimina evento">
+            <svg viewBox="0 0 24 24" width="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          </button>
+        </div>`
+							)
+							.join('')}</div></div>`
+					: `<p style="color:var(--text-mute);font-size:14px">Nessun evento registrato.</p>`
+			}
+      <div class="divider"></div>
+      <p style="font-size:12.5px;color:var(--text-mute)">
+        Le date "ultima cura" sono ricavate da questo storico: eliminando un evento la scadenza torna automaticamente all'evento precedente.
+      </p>
+    </div>
+
+    <button class="btn btn-secondary btn-danger" style="--i:3;margin-top:6px" onclick="deletePlant(${p.id})">Elimina pianta</button>
+  `;
+			}
+
+			/* ============================================================
+   AZIONI
+   ============================================================ */
+			/** registrazione immediata: un tap, zero dialog */
+			function care(id, type, btn) {
+				const p = state.plants.find((x) => x.id === id);
+				p.events.push({ id: ++uid, type, date: TODAY, note: '' });
+				p.snooze = null; // registrare una cura azzera lo snooze
+				burst(btn, type === 'water' ? '💧' : '🌾');
+				toast(
+					`${p.name}: ${type === 'water' ? 'annaffiata' : 'concimata'} · prossima ${fmtRel(nextDue(p, type))}`
+				);
+
+				if (screen === 'today') {
+					const card = btn.closest('.card');
+					// se non ha più nulla da fare oggi, esce dalla lista con animazione
+					if (!needs(p).length && card) {
+						card.classList.add('leaving');
+						card.addEventListener('animationend', () => render(), { once: true });
+						return;
+					}
+				}
+				render();
+			}
+
+			/** conferma visiva: overlay che nasce sulla card, solo transform+opacity */
+			function burst(btn, glyph) {
+				if (reduce()) return;
+				const host = btn.closest('.card') || btn.parentElement;
+				if (!host) return;
+				const el = document.createElement('div');
+				el.className = 'burst';
+				el.innerHTML = `<span>${glyph}</span>`;
+				host.style.willChange = 'transform'; // acceso solo per l'animazione…
+				host.appendChild(el);
+				setTimeout(() => {
+					el.remove();
+					host.style.willChange = '';
+				}, 560); // …e subito spento
+			}
+
+			/** rimanda: NON crea un evento, sposta solo la ricomparsa */
+			function snooze(id) {
+				const p = state.plants.find((x) => x.id === id);
+				p.snooze = addDays(TODAY, 1);
+				toast(`${p.name} rimandata a domani`);
+				const card = document.querySelector(`[data-plant="${id}"]`);
+				if (screen === 'today' && card) {
+					card.classList.add('leaving');
+					card.addEventListener('animationend', () => render(), { once: true });
+				} else render();
+			}
+			function unsnooze(id) {
+				const p = state.plants.find((x) => x.id === id);
+				p.snooze = null;
+				toast('Rinvio annullato');
+				render();
+			}
+
+			function delEvent(plantId, evId) {
+				const p = state.plants.find((x) => x.id === plantId);
+				const row = document.querySelector(`[data-ev="${evId}"]`);
+				const kill = () => {
+					p.events = p.events.filter((e) => e.id !== evId);
+					render();
+					toast('Evento eliminato · scadenza ricalcolata');
+				};
+				if (row && !reduce()) {
+					row.classList.add('leaving');
+					row.addEventListener('animationend', kill, { once: true });
+				} else kill();
+			}
+
+			function deletePlant(id) {
+				state.plants = state.plants.filter((p) => p.id !== id);
+				toast('Pianta eliminata');
+				nav('plants', 1);
+			}
+
+			function toggleWinter() {
+				state.winter = !state.winter;
+				winterSwitch.setAttribute('aria-checked', state.winter);
+				toast(state.winter ? '❄️ Modalità inverno attiva' : 'Modalità inverno disattivata');
+				render();
+			}
+			function setFactor(v) {
+				state.factor = parseFloat(v);
+				toast('Moltiplicatore ×' + v);
+				render();
+			}
+			function toggleNotif() {
+				state.notify = !state.notify;
+				notifSwitch.setAttribute('aria-checked', state.notify);
+				if (state.notify) toast('Riepilogo giornaliero alle ' + state.notifyTime);
+			}
+
+			/* ============================================================
+   BOTTOM SHEET — evento passato / form pianta / token / install
+   ============================================================ */
+			let sheetEl = null,
+				backdropEl = null;
+
+			function openSheet(html) {
+				closeSheet(true);
+				backdropEl = document.createElement('div');
+				backdropEl.className = 'backdrop';
+				backdropEl.onclick = () => closeSheet();
+				sheetEl = document.createElement('div');
+				sheetEl.className = 'sheet sheet-anim';
+				sheetEl.style.willChange = 'transform';
+				sheetEl.innerHTML = `<div class="grabber"></div>` + html;
+				overlays.append(backdropEl, sheetEl);
+				sheetEl.addEventListener(
+					'animationend',
+					() => {
+						if (sheetEl) sheetEl.style.willChange = '';
+					},
+					{ once: true }
+				);
+			}
+			function closeSheet(instant) {
+				const s = sheetEl,
+					b = backdropEl;
+				sheetEl = null;
+				backdropEl = null;
+				if (!s) return;
+				if (instant || reduce()) {
+					s.remove();
+					b.remove();
+					return;
+				}
+				s.style.willChange = 'transform';
+				s.classList.add('closing');
+				b.classList.add('closing');
+				s.addEventListener(
+					'animationend',
+					() => {
+						s.remove();
+						b.remove();
+					},
+					{ once: true }
+				);
+			}
+
+			/* --- evento retroattivo --- */
+			let sheetType = 'water';
+			function openEventSheet(id) {
+				const p = state.plants.find((x) => x.id === id);
+				sheetType = 'water';
+				openSheet(`
+    <h2>Evento passato</h2>
+    <div class="hint">${p.name} — registra una cura che avevi dimenticato di segnare.</div>
+    <div class="field">
+      <label>Tipo</label>
+      <div class="seg" id="typeSeg">
+        <button class="w" aria-pressed="true"  onclick="pickType('water')">💧 Annaffiata</button>
+        <button class="f" aria-pressed="false" onclick="pickType('fert')" ${p.fert ? '' : 'disabled style="opacity:.4"'}>🌾 Concimata</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="evDate">Data</label>
+      <input type="date" id="evDate" value="${TODAY}" max="${TODAY}">
+    </div>
+    <div class="field">
+      <label for="evNote">Nota (opzionale)</label>
+      <input id="evNote" placeholder="es. poca acqua, terra ancora umida">
+    </div>
+    <button class="btn btn-primary" onclick="saveEvent(${id})">Salva evento</button>
+    <button class="btn btn-secondary" style="margin-top:8px;border:0" onclick="closeSheet()">Annulla</button>
+  `);
+			}
+			function pickType(t) {
+				sheetType = t;
+				document
+					.querySelectorAll('#typeSeg button')
+					.forEach((b, i) => b.setAttribute('aria-pressed', (i === 0) === (t === 'water')));
+			}
+			function saveEvent(id) {
+				const p = state.plants.find((x) => x.id === id);
+				p.events.push({
+					id: ++uid,
+					type: sheetType,
+					date: evDate.value,
+					note: evNote.value.trim()
+				});
+				closeSheet();
+				render();
+				toast('Evento aggiunto allo storico');
+			}
+
+			/* --- form pianta --- */
+			function openPlantForm(id) {
+				const p = id ? state.plants.find((x) => x.id === id) : null;
+				openSheet(`
+    <h2>${p ? 'Modifica pianta' : 'Nuova pianta'}</h2>
+    <div class="hint">Solo l'essenziale: nome e ogni quanti giorni.</div>
+    <div class="field"><label for="fName">Nome</label>
+      <input id="fName" value="${p ? p.name : ''}" placeholder="es. Monstera"></div>
+    <div class="field"><div class="row">
+      <div><label for="fEmoji">Emoji</label><input id="fEmoji" value="${p ? p.emoji : '🪴'}" maxlength="4"></div>
+      <div><label for="fRoom">Stanza</label><input id="fRoom" value="${p ? p.room || '' : ''}" placeholder="opzionale"></div>
+    </div></div>
+    <div class="field"><label for="fWater">Annaffiatura ogni (giorni)</label>
+      <input type="number" id="fWater" min="1" max="365" value="${p ? p.water : 7}"></div>
+    <div class="field">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <label for="fFert" style="flex:1;margin:0">Concimazione ogni (giorni)</label>
+        <button class="switch" id="fertSwitch" role="switch" aria-checked="${p ? !!p.fert : true}"
+          onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')!=='true'); fFert.disabled = this.getAttribute('aria-checked')!=='true'; fFert.style.opacity = fFert.disabled ? 0.45 : 1"><i></i></button>
+      </div>
+      <input type="number" id="fFert" min="1" max="365" value="${p && p.fert ? p.fert : 30}"
+        ${p && !p.fert ? 'disabled style="opacity:.45"' : ''}>
+    </div>
+    <button class="btn btn-primary" onclick="savePlant(${p ? p.id : 'null'})">${p ? 'Salva' : 'Aggiungi'}</button>
+    <button class="btn btn-secondary" style="margin-top:8px;border:0" onclick="closeSheet()">Annulla</button>
+  `);
+			}
+			function savePlant(id) {
+				const name = fName.value.trim();
+				if (!name) {
+					toast('Serve almeno il nome');
+					return;
+				}
+				const data = {
+					name,
+					emoji: fEmoji.value.trim() || '🪴',
+					room: fRoom.value.trim(),
+					water: Math.max(1, +fWater.value || 7),
+					fert:
+						fertSwitch.getAttribute('aria-checked') === 'true'
+							? Math.max(1, +fFert.value || 30)
+							: null
+				};
+				if (id) {
+					Object.assign(
+						state.plants.find((p) => p.id === id),
+						data
+					);
+					toast('Pianta aggiornata');
+				} else {
+					state.plants.push({ id: ++uid, ...data, snooze: null, events: [] });
+					toast('Pianta aggiunta');
+				}
+				closeSheet();
+				render();
+			}
+
+			/* --- token sheet --- */
+			function openTokenSheet() {
+				openSheet(`
+    <h2>Il tuo codice</h2>
+    <div class="hint">Chi ha questo codice vede i tuoi dati. Non condividerlo.</div>
+    <div class="token-code">${state.token}</div>
+    <div class="qr-wrap">${qrSvg(state.token)}</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" onclick="copyToken()">Copia</button>
+      <button class="btn btn-secondary" onclick="downloadQr()">Scarica QR</button>
+    </div>
+  `);
+			}
+
+			/* ============================================================
+   INSTALL — banner + tutorial illustrato
+   ============================================================ */
+			function renderInstallBanner() {
+				const old = document.querySelector('.install-banner');
+				if (old) old.remove();
+				const hidden =
+					state.installed ||
+					state.installDismissed ||
+					!['today', 'plants', 'settings'].includes(screen);
+				if (hidden) return;
+
+				const promptMode = state.mockPlatform === 'android-prompt';
+				const el = document.createElement('div');
+				el.className = 'install-banner';
+				el.innerHTML = `<div class="install-inner">
+    <svg class="logo-mark sm" aria-hidden="true"><use href="#pd-logo"/></svg>
+    <div class="t">
+      <b>Installa PlantDaddy</b>
+      <small>${promptMode ? 'Un tap e la aggiungi alla Home' : 'Serve per ricevere le notifiche'}</small>
+    </div>
+    <button class="btn btn-install" onclick="${promptMode ? 'nativePrompt()' : 'openInstall()'}">
+      ${promptMode ? 'Installa' : 'Come'}</button>
+    <button class="x-btn" onclick="dismissInstall()" aria-label="Chiudi">
+      <svg viewBox="0 0 24 24" width="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>`;
+				document.body.appendChild(el);
+			}
+			function dismissInstall() {
+				state.installDismissed = true;
+				const b = document.querySelector('.install-banner');
+				if (b && !reduce()) {
+					b.firstElementChild.style.animation = 'fadeOut var(--dur-fast) var(--ease-in) forwards';
+					b.addEventListener('animationend', () => b.remove(), { once: true });
+				} else b?.remove();
+				toast('Puoi riaprirlo da Impostazioni › Installa app');
+			}
+			function nativePrompt() {
+				toast('→ prompt nativo del browser (beforeinstallprompt)');
+				setTimeout(() => {
+					state.installed = true;
+					render();
+					toast('App installata 🎉');
+				}, 700);
+			}
+
+			/* icone di sistema riprodotte come SVG inline */
+			const ICON_SHARE_IOS = `<svg viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M6 12H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"/></svg>`;
+			const ICON_ADD_HOME = `<svg viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>`;
+			const ICON_DOTS = `<svg viewBox="0 0 24 24" fill="currentColor" style="color:#3c4043"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`;
+			const ICON_PHONE_ADD = `<svg viewBox="0 0 24 24" fill="none" stroke="#3c4043" stroke-width="1.7" stroke-linecap="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M12 8v8M8 12h8"/></svg>`;
+
+			const TUTORIALS = {
+				ios: {
+					title: 'iPhone · Safari',
+					note: 'Su iOS nessun sito può installarsi da solo: Apple non espone alcuna API. Servono tre tap, ma senza questi le notifiche push non funzionano proprio.',
+					steps: [
+						{
+							txt: "Apri PlantDaddy in <b>Safari</b> (non in Chrome o dentro un'altra app: da lì il tasto non c'è).",
+							icon: null
+						},
+						{
+							txt: 'Tocca il tasto <b>Condividi</b> nella barra in basso.',
+							icon: ICON_SHARE_IOS,
+							label: 'Condividi'
+						},
+						{
+							txt: 'Scorri la lista e scegli <b>Aggiungi a Home</b>.',
+							icon: ICON_ADD_HOME,
+							label: 'Aggiungi a Home'
+						},
+						{
+							txt: "Conferma con <b>Aggiungi</b>. Poi apri l'app dall'icona sulla Home e accetta le notifiche.",
+							icon: null
+						}
+					]
+				},
+				'android-manual': {
+					title: 'Android · menu del browser',
+					note: "Se il prompt automatico non compare (o l'hai già chiuso), si installa dal menu.",
+					steps: [
+						{
+							txt: 'Tocca il menu <b>⋮</b> in alto a destra nel browser.',
+							icon: ICON_DOTS,
+							label: 'Menu'
+						},
+						{
+							txt: 'Scegli <b>Installa app</b> oppure <b>Aggiungi a schermata Home</b>.',
+							icon: ICON_PHONE_ADD,
+							label: 'Installa app'
+						},
+						{
+							txt: "Conferma con <b>Installa</b>: comparirà l'icona nel drawer e sulla Home.",
+							icon: null
+						}
+					]
+				}
+			};
+
+			function openInstall() {
+				if (state.installed) {
+					openSheet(`<h2>App già installata</h2><div class="hint">Stai usando PlantDaddy in modalità standalone. Niente da fare.</div>
+      <button class="btn btn-secondary" onclick="state.installed=false;state.installDismissed=false;closeSheet();render();toast('(mockup) reset stato installazione')">Simula "non installata"</button>`);
+					return;
+				}
+				state.installDismissed = false;
+				renderInstallSheet();
+			}
+			function setMockPlatform(p) {
+				state.mockPlatform = p;
+				renderInstallSheet();
+				render();
+			}
+
+			function renderInstallSheet() {
+				const p = state.mockPlatform;
+				const body =
+					p === 'android-prompt'
+						? `<div style="text-align:center;padding:14px 0 6px">
+         <div style="font-size:56px;animation:pop var(--dur-slow) var(--ease-back) both">📲</div>
+         <p style="margin-top:10px;color:var(--text-dim);font-size:14.5px">
+           Il tuo browser supporta l'installazione diretta.<br>Un tap e PlantDaddy finisce sulla Home.</p>
+       </div>
+       <button class="btn btn-primary" style="margin-top:10px" onclick="nativePrompt();closeSheet()">Installa app</button>`
+						: (() => {
+								const t = TUTORIALS[p];
+								return `
+       <div class="hint" style="margin-bottom:6px"><b>${t.title}</b> — ${t.note}</div>
+       <div class="steps">${t.steps
+					.map(
+						(s, i) => `
+         <div class="step" style="--i:${i}">
+           <div class="n">${i + 1}</div>
+           <div class="body"><p>${s.txt}</p>
+             ${s.icon ? `<div class="sys-icon">${s.icon}<span>${s.label}</span></div>` : ''}
+           </div>
+         </div>`
+					)
+					.join('')}</div>`;
+							})();
+
+				openSheet(`
+    <h2>Installa PlantDaddy</h2>
+    <div class="hint">Aggiunta alla Home è l'unico modo per ricevere le notifiche su iPhone.</div>
+    <div class="mock-switch">
+      <button aria-pressed="${p === 'android-prompt'}" onclick="setMockPlatform('android-prompt')">Chrome/Android</button>
+      <button aria-pressed="${p === 'ios'}" onclick="setMockPlatform('ios')">iOS Safari</button>
+      <button aria-pressed="${p === 'android-manual'}" onclick="setMockPlatform('android-manual')">Android manuale</button>
+    </div>
+    ${body}
+    <button class="btn btn-secondary" style="margin-top:12px;border:0" onclick="closeSheet()">Chiudi</button>
+    <p style="font-size:11.5px;color:var(--text-mute);text-align:center;margin-top:8px">
+      Selettore presente solo nel mockup: nell'app la piattaforma è rilevata da user agent.</p>
+  `);
+			}
+
+			/* ============================================================
+   TOKEN / QR / BACKUP
+   ============================================================ */
+			/* QR finto ma deterministico: griglia da hash del token + i tre
+   finder pattern agli angoli. Nel mockup basta, in Fase 2 sarà vero. */
+			function qrSvg(text, size = 25) {
+				let h = 2166136261;
+				for (const ch of text) {
+					h ^= ch.charCodeAt(0);
+					h = Math.imul(h, 16777619);
+				}
+				const rnd = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507)) >>> 0) / 4294967296;
+				const inFinder = (x, y) =>
+					(x < 8 && y < 8) || (x >= size - 8 && y < 8) || (x < 8 && y >= size - 8);
+				let cells = '';
+				for (let y = 0; y < size; y++)
+					for (let x = 0; x < size; x++)
+						if (!inFinder(x, y) && rnd() > 0.52)
+							cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+				const finder = (x, y) =>
+					`<rect x="${x}" y="${y}" width="7" height="7" fill="none" stroke="#16241c" stroke-width="1"/>
+     <rect x="${x + 2}" y="${y + 2}" width="3" height="3"/>`;
+				return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" fill="#16241c">
+    <rect width="${size}" height="${size}" fill="#fff"/>${cells}
+    ${finder(0, 0)}${finder(size - 7, 0)}${finder(0, size - 7)}</svg>`;
+			}
+			function copyToken() {
+				navigator.clipboard?.writeText(state.token);
+				toast('Codice copiato');
+			}
+			function downloadQr() {
+				const svg = qrSvg(state.token);
+				const img = new Image();
+				const blob = new Blob([svg], { type: 'image/svg+xml' });
+				const url = URL.createObjectURL(blob);
+				img.onload = () => {
+					const c = document.createElement('canvas');
+					c.width = c.height = 640;
+					const g = c.getContext('2d');
+					g.fillStyle = '#fff';
+					g.fillRect(0, 0, 640, 640);
+					g.imageSmoothingEnabled = false;
+					g.drawImage(img, 32, 32, 576, 576);
+					URL.revokeObjectURL(url);
+					const a = document.createElement('a');
+					a.download = 'plantdaddy-codice.png';
+					a.href = c.toDataURL('image/png');
+					a.click();
+					toast('QR scaricato');
+				};
+				img.src = url;
+			}
+			function doRestore() {
+				const v = restoreInput.value.trim();
+				if (v.length < 8) {
+					toast('Codice non valido');
+					return;
+				}
+				state.token = v;
+				toast('Sessione ripristinata');
+				nav('today');
+			}
+			function fakeQrDecode(input) {
+				if (!input.files[0]) return;
+				restoreInput.value = state.token;
+				input.value = '';
+				toast('QR letto: codice compilato');
+			}
+			function exportBackup() {
+				const data = JSON.stringify(
+					{
+						version: 1,
+						token: state.token,
+						settings: {
+							winter: state.winter,
+							factor: state.factor,
+							notify: state.notify,
+							notifyTime: state.notifyTime
+						},
+						plants: state.plants
+					},
+					null,
+					2
+				);
+				const a = document.createElement('a');
+				a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+				a.download = `plantdaddy-backup-${TODAY}.json`;
+				a.click();
+				URL.revokeObjectURL(a.href);
+				toast('Backup esportato');
+			}
+			function importBackup(input) {
+				const f = input.files[0];
+				if (!f) return;
+				f.text()
+					.then((t) => {
+						const d = JSON.parse(t);
+						if (d.plants) state.plants = d.plants;
+						if (d.settings) Object.assign(state, d.settings);
+						winterSwitch.setAttribute('aria-checked', state.winter);
+						winterFactor.value = state.factor;
+						render();
+						toast(`Backup importato · ${state.plants.length} piante`);
+					})
+					.catch(() => toast('File non valido'));
+				input.value = '';
+			}
+
+			/* ============================================================
+   TOAST
+   ============================================================ */
+			function toast(msg) {
+				const el = document.createElement('div');
+				el.className = 'toast';
+				el.textContent = msg;
+				toastEl.appendChild(el);
+				setTimeout(() => {
+					el.classList.add('out');
+					el.addEventListener('animationend', () => el.remove(), { once: true });
+				}, 2000);
+			}
+			const toastEl = document.getElementById('toast');
+
+			/* ============================================================
+   BOOT
+   ============================================================ */
+			welcomeToken.textContent = state.token;
+			welcomeQr.innerHTML = qrSvg(state.token);
+			/* se già installata come PWA non mostriamo né banner né tutorial */
+			state.installed =
+				matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+			nav('welcome');
+		</script>
+	</body>
+</html>

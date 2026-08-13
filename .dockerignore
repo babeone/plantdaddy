@@ -1,0 +1,37 @@
+# Tutto ciò che non serve a compilare o a far girare l'app.
+# Meno contesto = build più veloce e nessun segreto che entra nell'immagine.
+
+# --- segreti: non devono MAI finire in un layer ---
+.env
+.env.*
+!.env.example
+
+# --- dipendenze e artefatti ricostruiti dentro l'immagine ---
+node_modules
+build
+.svelte-kit
+*.tsbuildinfo
+
+# --- git e CI ---
+.git
+.gitignore
+.github
+
+# --- editor e sistema operativo ---
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# --- documentazione e prototipi: non servono al runtime ---
+README.md
+DEPLOY.md
+mockup.html
+requests.http
+db/verify.sql
+
+# --- log e temporanei ---
+*.log
+npm-debug.log*
+coverage
+.nyc_output

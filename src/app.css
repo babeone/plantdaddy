@@ -1,0 +1,957 @@
+/* ============================================================
+   1. TOKENS — palette, ritmo, curve
+   Cambia qui i tre valori di durata e i due easing per
+   regolare il ritmo di TUTTA l'app.
+   ============================================================ */
+:root {
+	/* --- durate --- */
+	--dur-fast: 130ms; /* micro-interazioni: tap, toggle, badge */
+	--dur-mid: 220ms; /* bottom sheet, card, transizioni di vista */
+	--dur-slow: 300ms; /* entrate complesse, max consentito 400ms */
+
+	/* --- easing (riusare SEMPRE questi, niente curve improvvisate) --- */
+	--ease-out: cubic-bezier(0.22, 0.61, 0.36, 1); /* uscita morbida, default */
+	--ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19); /* sparizioni */
+	--ease-back: cubic-bezier(0.34, 1.35, 0.64, 1); /* micro rimbalzo, solo conferme */
+
+	/* --- stagger lista --- */
+	--stagger: 38ms;
+
+	/* --- palette: GIUNGLA NOTTURNA --- */
+	--bg: #0f1a14;
+	--surface: #17251d;
+	--surface-2: #1e2f25;
+	--line: #2b3f33;
+
+	--text: #e8f1ea;
+	--text-dim: #a9bdb0;
+	--text-mute: #7d9287;
+
+	--brand: #48c98a;
+	--brand-ink: #06120c;
+	--brand-soft: #1c3b2a;
+
+	--water: #4aa8e0;
+	--water-soft: #16303f;
+	--fert: #d9a441;
+	--fert-soft: #39301a;
+
+	--late: #ff7a6b;
+	--late-soft: #3d1f1c;
+	--today: #ffc14d;
+	--today-soft: #3a2c12;
+	--soon: #7fb2d9;
+	--ok: #58c48a;
+
+	--winter: #6cb6e8;
+	--winter-soft: #16303f;
+
+	/* --- colori del logo --- */
+	--leaf-2: #3f9a63;
+	--leaf-3: #2b7d51;
+	--pot: #d0714a;
+	--pot-rim: #e5865b;
+	--ink: #22303a;
+	--stache: #55372a;
+	--gold: #e3b23c;
+
+	/* --- forma --- */
+	--r-sm: 10px;
+	--r-md: 16px;
+	--r-lg: 22px;
+	--r-xl: 28px;
+	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+	--shadow-2: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+	--safe-b: env(safe-area-inset-bottom, 0px);
+
+	/* --- tipografia: stack cartoon, con fallback di sistema.
+     Chalkboard SE c'è su macOS/iOS, Comic Sans su Windows/Android.
+     In Fase 2, se vuoi un font unico su tutti i device, si
+     self-hosta un woff2 (Baloo, Fredoka): resta zero-CDN. --- */
+	--font-ui: 'Chalkboard SE', 'Comic Sans MS', 'Trebuchet MS', cursive;
+	--font-display: var(--font-ui);
+}
+
+/* ============================================================
+   2. RESET + BASE
+   ============================================================ */
+* {
+	box-sizing: border-box;
+	-webkit-tap-highlight-color: transparent;
+}
+html,
+body {
+	height: 100%;
+}
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font: 16px/1.45 var(--font-ui);
+	overscroll-behavior-y: none;
+}
+/* titoli e marchio: stack separato, così un tema può cambiare
+   solo i titoli senza toccare la leggibilità del corpo testo */
+.brand,
+.topbar h1,
+.hero h2,
+.sheet h2,
+.stat b {
+	font-family: var(--font-display);
+}
+button,
+input,
+select,
+textarea {
+	font: inherit;
+	color: inherit;
+}
+button {
+	border: 0;
+	background: none;
+	cursor: pointer;
+}
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Wrapper che SvelteKit mette attorno al body: trasparente al layout. */
+.app-root {
+	display: contents;
+}
+
+/* Il "telefono": 390px di riferimento, ma il layout regge anche desktop.
+   min-height in dvh e non in %: la percentuale dipende dall'altezza di TUTTI
+   gli antenati, e se uno di quelli non ha un'altezza definita #app diventa
+   alto quanto il contenuto — con una pagina vuota la bottom nav risaliva a
+   metà schermo. dvh guarda solo il viewport, e su mobile tiene conto della
+   barra del browser che compare e sparisce durante lo scroll. */
+#app {
+	max-width: 430px;
+	margin: 0 auto;
+	min-height: 100vh; /* fallback per browser senza dvh */
+	min-height: 100dvh;
+	background: var(--bg);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 0 0 1px var(--line);
+}
+@media (min-width: 900px) {
+	body {
+		background: var(--surface-2);
+	}
+	#app {
+		min-height: 100dvh;
+	}
+}
+
+/* ============================================================
+   3. LAYOUT — header, scroll area, bottom nav
+   ============================================================ */
+.topbar {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(12px);
+	border-bottom: 1px solid var(--line);
+	padding: 14px 16px 10px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.topbar h1 {
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	flex: 1;
+}
+.topbar .sub {
+	font-size: 13px;
+	color: var(--text-dim);
+	font-weight: 500;
+}
+
+/* ---- MARCHIO NEL LAYOUT ----
+   Home: logo grande dentro un badge morbido + wordmark.
+   Altre schermate: logo piccolo accanto al titolo, così il marchio
+   è sempre presente senza rubare spazio verticale. */
+.logo-mark {
+	width: 44px;
+	height: 44px;
+	flex: none;
+	display: block;
+}
+.logo-mark.sm {
+	width: 30px;
+	height: 30px;
+}
+.logo-badge {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 56px;
+	height: 56px;
+	border-radius: var(--r-lg);
+	background: var(--brand-soft);
+}
+.topbar-home {
+	padding: 12px 16px 10px;
+	gap: 12px;
+}
+.brand {
+	font-size: 23px;
+	font-weight: 750;
+	letter-spacing: -0.03em;
+	flex: 1;
+	line-height: 1.1;
+}
+.brand small {
+	display: block;
+	font-size: 11.5px;
+	font-weight: 600;
+	letter-spacing: 0;
+	color: var(--text-mute);
+	margin-top: 1px;
+}
+.topbar .date {
+	font-size: 12.5px;
+	font-weight: 500;
+	color: var(--text-mute);
+	text-align: right;
+	line-height: 1.2;
+}
+.back-btn {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	background: var(--surface-2);
+	transition: transform var(--dur-fast) var(--ease-out);
+}
+.back-btn:active {
+	transform: scale(0.9);
+}
+
+.scroll {
+	flex: 1;
+	padding: 14px 16px 120px;
+}
+
+.tabbar {
+	position: sticky;
+	bottom: 0;
+	z-index: 20;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	background: color-mix(in srgb, var(--surface) 92%, transparent);
+	backdrop-filter: blur(14px);
+	border-top: 1px solid var(--line);
+	padding: 6px 0 calc(6px + var(--safe-b));
+}
+.tabbar a {
+	display: flex;
+	text-decoration: none;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	padding: 6px 0;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-mute);
+	transition:
+		color var(--dur-fast) var(--ease-out),
+		transform var(--dur-fast) var(--ease-out);
+}
+.tabbar a svg {
+	width: 24px;
+	height: 24px;
+	stroke-width: 1.8;
+}
+.tabbar a:active {
+	transform: scale(0.92);
+}
+.tabbar a[aria-current='page'] {
+	color: var(--brand);
+}
+.tabbar .dot {
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--brand);
+	transform: scale(0);
+	transition: transform var(--dur-fast) var(--ease-back);
+}
+.tabbar a[aria-current='page'] .dot {
+	transform: scale(1);
+}
+
+/* ============================================================
+   4. PRIMITIVE CONDIVISE — pill di stato, avatar, riga meta
+   (la card sta in PlantCard.svelte: la usa solo quel componente)
+   ============================================================ */
+.avatar {
+	width: 46px;
+	height: 46px;
+	flex: none;
+	border-radius: 14px;
+	background: var(--surface-2);
+	display: grid;
+	place-items: center;
+	font-size: 24px;
+}
+.card-title {
+	flex: 1;
+	min-width: 0;
+}
+.card-title .name {
+	display: block;
+	font-weight: 650;
+	font-size: 17px;
+	letter-spacing: -0.01em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.card-title .room {
+	display: block;
+	font-size: 13px;
+	color: var(--text-mute);
+}
+
+/* pill di stato */
+.pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+	font-weight: 650;
+	padding: 4px 9px;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+.pill.late {
+	background: var(--late-soft);
+	color: var(--late);
+}
+.pill.today {
+	background: var(--today-soft);
+	color: var(--today);
+}
+.pill.soon {
+	background: var(--surface-2);
+	color: var(--soon);
+}
+.pill.ok {
+	background: var(--surface-2);
+	color: var(--ok);
+}
+.pill.snoozed {
+	background: var(--surface-2);
+	color: var(--text-mute);
+}
+.pill.water {
+	background: var(--water-soft);
+	color: var(--water);
+}
+.pill.fert {
+	background: var(--fert-soft);
+	color: var(--fert);
+}
+
+.meta-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+/* ============================================================
+   6. BOTTONI — gerarchia: primario grande, secondario defilato
+   Feedback :active immediato su transform (no layout, no repaint).
+   ============================================================ */
+.actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	align-items: stretch;
+}
+.btn {
+	border-radius: var(--r-md);
+	font-weight: 650;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	transition:
+		transform var(--dur-fast) var(--ease-out),
+		opacity var(--dur-fast) var(--ease-out);
+	touch-action: manipulation;
+}
+.btn:active {
+	transform: scale(0.97);
+}
+
+/* PRIMARIO — registrazione immediata, un solo tap */
+.btn-care {
+	flex: 1;
+	min-height: 52px;
+	font-size: 16px;
+	background: var(--water);
+	color: #fff;
+	box-shadow: 0 2px 0 color-mix(in srgb, var(--water) 70%, #000);
+}
+.btn-care.fert {
+	background: var(--fert);
+	box-shadow: 0 2px 0 color-mix(in srgb, var(--fert) 70%, #000);
+}
+.btn-care:active {
+	transform: scale(0.97) translateY(1px);
+}
+
+/* SECONDARI — snooze e evento passato: piccoli, grigi, defilati */
+.btn-ghost {
+	min-height: 52px;
+	width: 52px;
+	flex: none;
+	background: var(--surface-2);
+	color: var(--text-dim);
+	border: 1px solid var(--line);
+}
+.btn-mini {
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--text-mute);
+	padding: 6px 10px;
+	border-radius: var(--r-sm);
+	background: transparent;
+	border: 1px dashed var(--line);
+}
+.btn-primary {
+	width: 100%;
+	min-height: 52px;
+	font-size: 16.5px;
+	background: var(--brand);
+	color: var(--brand-ink);
+}
+.btn-secondary {
+	width: 100%;
+	min-height: 48px;
+	font-size: 15.5px;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--line);
+}
+.btn-danger {
+	color: var(--late);
+	background: var(--late-soft);
+	border: 0;
+}
+.btn svg {
+	width: 19px;
+	height: 19px;
+	stroke-width: 2;
+}
+
+/* FAB */
+.fab {
+	position: fixed;
+	right: calc(50% - 215px + 16px);
+	bottom: calc(78px + var(--safe-b));
+	width: 56px;
+	height: 56px;
+	border-radius: 50%;
+	background: var(--brand);
+	color: #fff;
+	box-shadow: var(--shadow-2);
+	display: grid;
+	place-items: center;
+	z-index: 15;
+	animation: pop var(--dur-mid) var(--ease-back) both;
+}
+@media (max-width: 460px) {
+	.fab {
+		right: 16px;
+	}
+}
+.fab:active {
+	transform: scale(0.92);
+}
+.fab svg {
+	width: 26px;
+	height: 26px;
+	stroke-width: 2.2;
+}
+
+/* ============================================================
+   7. ANIMAZIONI — solo transform + opacity
+   ============================================================ */
+@keyframes fadeUp {
+	from {
+		opacity: 0;
+		transform: translate3d(0, 14px, 0) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes pop {
+	from {
+		opacity: 0;
+		transform: scale(0.7);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+@keyframes sheetIn {
+	from {
+		transform: translate3d(0, 100%, 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+@keyframes sheetOut {
+	from {
+		transform: translate3d(0, 0, 0);
+	}
+	to {
+		transform: translate3d(0, 100%, 0);
+	}
+}
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes fadeOut {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes checkBurst {
+	0% {
+		opacity: 0;
+		transform: scale(0.4);
+	}
+	45% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+	100% {
+		opacity: 0;
+		transform: scale(1.5);
+	}
+}
+@keyframes toastIn {
+	from {
+		opacity: 0;
+		transform: translate3d(0, 18px, 0);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes cardLeave {
+	to {
+		opacity: 0;
+		transform: translate3d(0, -8px, 0) scale(0.96);
+	}
+}
+@keyframes rowIn {
+	from {
+		opacity: 0;
+		transform: translate3d(-10px, 0, 0);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+/* Lo stagger e l'uscita delle card non sono più CSS: li fanno transition:fly
+   e animate:flip di Svelte, con i delay calcolati in JS a partire dalle
+   costanti di src/lib/motion.ts. Motivo pratico: la versione CSS aveva bisogno
+   di uno style inline (--i) su ogni card, e la CSP non ammette inline style. */
+
+/* Transizione di vista (View Transitions API) */
+::view-transition-old(root) {
+	animation: vtOut var(--dur-mid) var(--ease-in) both;
+}
+::view-transition-new(root) {
+	animation: vtIn var(--dur-mid) var(--ease-out) both;
+}
+@keyframes vtOut {
+	to {
+		opacity: 0;
+		transform: translate3d(-16px, 0, 0);
+	}
+}
+@keyframes vtIn {
+	from {
+		opacity: 0;
+		transform: translate3d(16px, 0, 0);
+	}
+}
+html[data-nav='back']::view-transition-old(root) {
+	animation: vtOutBack var(--dur-mid) var(--ease-in) both;
+}
+html[data-nav='back']::view-transition-new(root) {
+	animation: vtInBack var(--dur-mid) var(--ease-out) both;
+}
+@keyframes vtOutBack {
+	to {
+		opacity: 0;
+		transform: translate3d(16px, 0, 0);
+	}
+}
+@keyframes vtInBack {
+	from {
+		opacity: 0;
+		transform: translate3d(-16px, 0, 0);
+	}
+}
+
+/* conferma cura: badge che esplode sopra la card */
+.burst {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	pointer-events: none;
+	z-index: 5;
+}
+.burst span {
+	font-size: 56px;
+	animation: checkBurst 520ms var(--ease-out) forwards;
+}
+
+/* ============================================================
+   8. ACCESSIBILITÀ MOVIMENTO — obbligatorio
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 1ms !important;
+		animation-delay: 0ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 1ms !important;
+		scroll-behavior: auto !important;
+	}
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation: none;
+	}
+	.btn:active {
+		transform: none;
+	}
+}
+
+/* ============================================================
+   10. FORM
+   ============================================================ */
+.field {
+	margin-bottom: 14px;
+}
+.field label {
+	display: block;
+	font-size: 13px;
+	font-weight: 650;
+	color: var(--text-dim);
+	margin-bottom: 6px;
+}
+.field input,
+.field select,
+.field textarea {
+	width: 100%;
+	padding: 13px 14px;
+	border-radius: var(--r-md);
+	border: 1px solid var(--line);
+	background: var(--surface);
+	transition: transform var(--dur-fast) var(--ease-out);
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+	outline: 2px solid var(--brand);
+	outline-offset: -1px;
+}
+.field .row {
+	display: flex;
+	gap: 10px;
+}
+.field .row > * {
+	flex: 1;
+}
+.seg {
+	display: flex;
+	gap: 8px;
+}
+.seg button {
+	flex: 1;
+	padding: 12px;
+	border-radius: var(--r-md);
+	border: 1px solid var(--line);
+	background: var(--surface);
+	font-weight: 650;
+	font-size: 14.5px;
+	transition:
+		transform var(--dur-fast) var(--ease-out),
+		background-color var(--dur-fast) linear,
+		color var(--dur-fast) linear;
+}
+.seg button:active {
+	transform: scale(0.97);
+}
+.seg button[aria-pressed='true'] {
+	background: var(--brand);
+	color: #fff;
+	border-color: var(--brand);
+}
+.seg button.w[aria-pressed='true'] {
+	background: var(--water);
+	border-color: var(--water);
+}
+.seg button.f[aria-pressed='true'] {
+	background: var(--fert);
+	border-color: var(--fert);
+}
+
+/* switch */
+.switch {
+	width: 50px;
+	height: 30px;
+	border-radius: 999px;
+	background: var(--line);
+	position: relative;
+	flex: none;
+	transition: background-color var(--dur-fast) linear;
+}
+.switch[aria-checked='true'] {
+	background: var(--winter);
+}
+.switch i {
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+	transition: transform var(--dur-fast) var(--ease-out);
+}
+.switch[aria-checked='true'] i {
+	transform: translateX(20px);
+}
+
+/* ============================================================
+   11. IMPOSTAZIONI / BLOCCHI
+   ============================================================ */
+.group {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r-lg);
+	overflow: hidden;
+	margin-bottom: 14px;
+	box-shadow: var(--shadow-1);
+}
+.group > .item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 14px;
+	border-bottom: 1px solid var(--line);
+	width: 100%;
+	text-align: left;
+}
+.group > .item:last-child {
+	border-bottom: 0;
+}
+.item .t {
+	flex: 1;
+	min-width: 0;
+}
+.item .t b {
+	display: block;
+	font-size: 15px;
+	font-weight: 650;
+}
+.item .t small {
+	color: var(--text-mute);
+	font-size: 12.5px;
+	display: block;
+	margin-top: 1px;
+}
+button.item {
+	transition: transform var(--dur-fast) var(--ease-out);
+}
+button.item:active {
+	transform: scale(0.985);
+}
+.group-title {
+	font-size: 12.5px;
+	font-weight: 700;
+	color: var(--text-mute);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	margin: 18px 4px 8px;
+}
+
+/* ============================================================
+   12. BADGE INVERNO — deve dare fastidio a maggio
+   ============================================================ */
+.winter-strip {
+	display: none;
+	align-items: center;
+	gap: 8px;
+	background: var(--winter-soft);
+	color: var(--winter);
+	border: 1px solid color-mix(in srgb, var(--winter) 25%, transparent);
+	border-radius: var(--r-md);
+	padding: 9px 12px;
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: 12px;
+	animation: fadeUp var(--dur-mid) var(--ease-out) both;
+}
+body[data-winter='1'] .winter-strip {
+	display: flex;
+}
+.winter-chip {
+	display: none;
+	align-items: center;
+	gap: 5px;
+	background: var(--winter-soft);
+	color: var(--winter);
+	font-size: 11.5px;
+	font-weight: 700;
+	padding: 4px 8px;
+	border-radius: 999px;
+}
+body[data-winter='1'] .winter-chip {
+	display: inline-flex;
+}
+
+/* ============================================================
+   11. AVVISO — usato in dettaglio pianta e impostazioni
+   ============================================================ */
+.warn {
+	display: flex;
+	gap: 9px;
+	background: var(--today-soft);
+	color: var(--today);
+	border-radius: var(--r-md);
+	padding: 11px 12px;
+	font-size: 13px;
+	line-height: 1.4;
+	margin-top: 12px;
+}
+.warn svg {
+	width: 18px;
+	height: 18px;
+	flex: none;
+	margin-top: 1px;
+}
+
+/* ============================================================
+   12. CODICE SESSIONE / QR — benvenuto e impostazioni
+   ============================================================ */
+.token-box {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r-lg);
+	padding: 16px;
+	text-align: center;
+	box-shadow: var(--shadow-1);
+}
+.token-code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 13.5px;
+	word-break: break-all;
+	background: var(--surface-2);
+	padding: 11px;
+	border-radius: var(--r-sm);
+	margin: 10px 0;
+	user-select: all;
+}
+.qr-wrap {
+	display: grid;
+	place-items: center;
+	padding: 6px 0 12px;
+}
+
+/* ============================================================
+   13. TOAST
+   ============================================================ */
+/* Il contenitore dei toast sta in +layout.svelte, insieme al #each che li
+   monta: entrata e uscita le fa transition:fly, non un'animazione CSS. */
+.toast {
+	/* pillola invertita rispetto al fondo: su tema scuro diventa chiara */
+	background: var(--text);
+	color: var(--bg);
+	border-radius: 999px;
+	padding: 10px 18px;
+	font-size: 14px;
+	font-weight: 600;
+	box-shadow: var(--shadow-2);
+}
+
+.empty {
+	text-align: center;
+	padding: 48px 20px;
+	color: var(--text-mute);
+}
+.empty .ico {
+	font-size: 52px;
+	animation: pop var(--dur-slow) var(--ease-back) both;
+}
+.empty .ico svg {
+	width: 96px;
+	height: 96px;
+	display: block;
+	margin: 0 auto;
+}
+
+.empty p {
+	margin-top: 10px;
+	font-size: 15px;
+}
+.section-label {
+	font-size: 12.5px;
+	font-weight: 700;
+	color: var(--text-mute);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	margin: 6px 4px 10px;
+}
+.divider {
+	height: 1px;
+	background: var(--line);
+	margin: 14px 0;
+}
+.card-rel {
+	position: relative;
+}

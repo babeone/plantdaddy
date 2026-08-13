@@ -1,0 +1,322 @@
+# PlantDaddy — chiamate di esempio per tutte le API.
+#
+# Si aprono con l'estensione REST Client di VS Code (humao.rest-client):
+# clicca "Send Request" sopra ogni blocco. Le variabili si aggiornano da sole
+# grazie ai nomi @name, quindi basta eseguire "Crea sessione" e "Crea pianta"
+# una volta e il resto funziona.
+#
+# Il token viaggia SEMPRE nell'header X-Session-Token, mai in query string:
+# una URL finisce nei log del reverse proxy, nella cronologia e nel Referer.
+
+@host = http://localhost:5173
+@token = {{session.response.body.token}}
+@plantId = {{createPlant.response.body.plant.id}}
+@eventId = {{care.response.body.event.id}}
+
+### Healthcheck — nessuna autenticazione, risponde solo { ok: true }
+GET {{host}}/api/health
+
+### Crea sessione (rate limit: 5 per IP all'ora)
+# @name session
+POST {{host}}/api/session
+
+### Verifica token — nel BODY, per la schermata di ripristino
+POST {{host}}/api/session/verify
+Content-Type: application/json
+
+{ "token": "{{token}}" }
+
+### Verifica token — variante con header, stesso risultato
+POST {{host}}/api/session/verify
+X-Session-Token: {{token}}
+
+### Verifica token inesistente -> { valid: false }
+POST {{host}}/api/session/verify
+Content-Type: application/json
+
+{ "token": "00000000-0000-4000-8000-000000000000" }
+
+# ---------------------------------------------------------------------------
+# PIANTE
+# ---------------------------------------------------------------------------
+
+### Crea pianta
+# @name createPlant
+POST {{host}}/api/plants
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"name": "Monstera",
+	"emoji": "🌿",
+	"location": "Salotto",
+	"watering_interval_days": 7,
+	"fertilizing_interval_days": 30
+}
+
+### Crea pianta senza concimazione
+POST {{host}}/api/plants
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"name": "Sansevieria",
+	"emoji": "🌵",
+	"location": "Ingresso",
+	"watering_interval_days": 21,
+	"fertilizing_interval_days": null
+}
+
+### Lista piante (view plant_status: include scadenze e intervalli effettivi)
+GET {{host}}/api/plants
+X-Session-Token: {{token}}
+
+### Modifica pianta
+PATCH {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "name": "Monstera deliciosa", "watering_interval_days": 8 }
+
+### Elimina pianta (cancella anche i suoi eventi, per CASCADE)
+DELETE {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+
+# ---------------------------------------------------------------------------
+# CURE
+# ---------------------------------------------------------------------------
+
+### Tap immediato: nessuna data, usa oggi -> 201
+# @name care
+POST {{host}}/api/plants/{{plantId}}/care
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "water" }
+
+### Doppio tap: stesso giorno, stesso tipo -> 200 con created: false
+POST {{host}}/api/plants/{{plantId}}/care
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "water" }
+
+### Inserimento retroattivo con nota
+POST {{host}}/api/plants/{{plantId}}/care
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "fertilize", "date": "2026-08-01", "note": "Concime liquido diluito" }
+
+### Data futura -> 400
+POST {{host}}/api/plants/{{plantId}}/care
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "water", "date": "2099-01-01" }
+
+### Storico eventi, paginato (limit oltre 100 viene ridotto a 100)
+GET {{host}}/api/plants/{{plantId}}/care?limit=20&offset=0
+X-Session-Token: {{token}}
+
+### Elimina un singolo evento (la data "ultima cura" torna alla precedente)
+DELETE {{host}}/api/care/{{eventId}}
+X-Session-Token: {{token}}
+
+# ---------------------------------------------------------------------------
+# SNOOZE
+# ---------------------------------------------------------------------------
+
+### Rimanda a domani (default days: 1). Non crea eventi.
+POST {{host}}/api/plants/{{plantId}}/snooze
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "water" }
+
+### Rimanda di 3 giorni
+POST {{host}}/api/plants/{{plantId}}/snooze
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "type": "water", "days": 3 }
+
+# ---------------------------------------------------------------------------
+# IMPOSTAZIONI
+# ---------------------------------------------------------------------------
+
+### Orario notifiche + modalità inverno
+PATCH {{host}}/api/settings
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "notify_hour": 9, "winter_mode": true, "winter_multiplier": 1.5 }
+
+### Spegni la modalità inverno
+PATCH {{host}}/api/settings
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "winter_mode": false }
+
+### Valore fuori range -> 400
+PATCH {{host}}/api/settings
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "notify_hour": 25 }
+
+# ---------------------------------------------------------------------------
+# PUSH
+# ---------------------------------------------------------------------------
+
+### Subscribe con endpoint valido (host in allowlist)
+POST {{host}}/api/push/subscribe
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"endpoint": "https://fcm.googleapis.com/fcm/send/abc123",
+	"keys": { "p256dh": "BNc...chiave-pubblica", "auth": "auth-secret" }
+}
+
+### SSRF: servizio interno -> 400
+POST {{host}}/api/push/subscribe
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"endpoint": "http://postgres:5432/",
+	"keys": { "p256dh": "x", "auth": "y" }
+}
+
+### SSRF: host che finge di essere Google -> 400
+POST {{host}}/api/push/subscribe
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"endpoint": "https://fcm.googleapis.com.evil.tld/send",
+	"keys": { "p256dh": "x", "auth": "y" }
+}
+
+### SSRF: host giusto ma porta esplicita -> 400
+POST {{host}}/api/push/subscribe
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"endpoint": "https://fcm.googleapis.com:5432/send",
+	"keys": { "p256dh": "x", "auth": "y" }
+}
+
+### Unsubscribe
+POST {{host}}/api/push/unsubscribe
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "endpoint": "https://fcm.googleapis.com/fcm/send/abc123" }
+
+# ---------------------------------------------------------------------------
+# BACKUP
+# ---------------------------------------------------------------------------
+
+### Export completo (scarica come allegato)
+GET {{host}}/api/export
+X-Session-Token: {{token}}
+
+### Import in merge (default): riusa le piante con lo stesso nome,
+### salta gli eventi già presenti per pianta/data/tipo
+POST {{host}}/api/import
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"version": 1,
+	"settings": { "notify_hour": 8, "winter_mode": false, "winter_multiplier": 1.5 },
+	"plants": [
+		{
+			"id": "vecchio-id-ignorato",
+			"name": "Pothos",
+			"emoji": "🍃",
+			"location": "Camera",
+			"watering_interval_days": 6,
+			"fertilizing_interval_days": 45
+		}
+	],
+	"care_events": [
+		{ "plant_id": "vecchio-id-ignorato", "type": "water", "event_date": "2026-08-05" },
+		{ "plant_id": "vecchio-id-ignorato", "type": "water", "event_date": "2026-07-29" }
+	]
+}
+
+### Import in replace: svuota le piante della sessione e ricarica (distruttivo)
+POST {{host}}/api/import?mode=replace
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"version": 1,
+	"plants": [
+		{ "name": "Calathea", "emoji": "🌱", "watering_interval_days": 4, "fertilizing_interval_days": 21 }
+	],
+	"care_events": []
+}
+
+### Import con id di un altro utente nel file: ignorato, le righe finiscono
+### comunque sulla sessione chiamante
+POST {{host}}/api/import
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"version": 1,
+	"plants": [
+		{
+			"id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			"user_token_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+			"name": "Ficus",
+			"watering_interval_days": 9
+		}
+	],
+	"care_events": []
+}
+
+### Versione non supportata -> 400
+POST {{host}}/api/import
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "version": 99, "plants": [], "care_events": [] }
+
+# ---------------------------------------------------------------------------
+# ERRORI ATTESI
+# ---------------------------------------------------------------------------
+
+### Senza header -> 401
+GET {{host}}/api/plants
+
+### Token inesistente -> 401
+GET {{host}}/api/plants
+X-Session-Token: 00000000-0000-4000-8000-000000000000
+
+### IDOR: id di un'altra sessione -> 404, non 403 (non rivela cosa esiste)
+GET {{host}}/api/plants/11111111-2222-3333-4444-555555555555/care
+X-Session-Token: {{token}}
+
+### id non-UUID -> 404, non 500
+PATCH {{host}}/api/plants/non-un-uuid
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "name": "X" }
+
+### Nome oltre 60 caratteri -> 400 con il campo colpevole
+POST {{host}}/api/plants
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{
+	"name": "Nome assurdamente lungo che supera i sessanta caratteri consentiti dal CHECK",
+	"watering_interval_days": 7
+}
