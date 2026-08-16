@@ -17,6 +17,7 @@ const statusColumns = () => sql`
 	name,
 	emoji,
 	location,
+	notes,
 	watering_interval_days,
 	fertilizing_interval_days,
 	effective_watering_interval,
@@ -35,6 +36,7 @@ export type PlantStatus = {
 	name: string;
 	emoji: string | null;
 	location: string | null;
+	notes: string | null;
 	watering_interval_days: number;
 	fertilizing_interval_days: number | null;
 	effective_watering_interval: number;

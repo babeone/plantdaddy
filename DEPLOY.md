@@ -197,6 +197,16 @@ solo quando vuoi promuovere.
 | `CRON_SECRET`             | `openssl rand -hex 32`                                        | protegge `/api/cron/notify`                                |
 | `BODY_SIZE_LIMIT`         | `8M` (già nel Dockerfile)                                     | l'import di un backup pieno supera il default di 512K      |
 
+Facoltative, solo se vuoi il pannello di controllo (vedi § 10):
+
+| Variabile              | Valore        | Note                                                 |
+| ---------------------- | ------------- | ---------------------------------------------------- |
+| `ADMIN_ENABLED`        | `true`        | senza questa ogni rotta del pannello risponde 404    |
+| `PUBLIC_ADMIN_PATH`    | `/superman`   | percorso pubblico; **non** è una misura di sicurezza |
+| `ADMIN_IP_ALLOWLIST`   | `1.2.3.4`     | IP esatti separati da virgola; fuori elenco è 404    |
+| `ADMIN_SHOW_USER_TEXT` | non impostata | a `true` mostra le note scritte dagli utenti         |
+| `ADMIN_SESSION_HOURS`  | `8`           | durata massima della sessione admin                  |
+
 > **Se un import fallisce con `{"message":"Body JSON non valido"}`, guarda qui
 > prima di cercare bug nel JSON.** Quando il corpo supera `BODY_SIZE_LIMIT`
 > adapter-node interrompe lo stream, e quello che l'app vede è un JSON troncato:
@@ -546,7 +556,85 @@ docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb
 Cancellare il volume e ridistribuire è l'alternativa: accettabile solo a database
 vuoto, perché dopo significa perdere i dati.
 
-## 10. Backup del database — deliberatamente non configurato
+## 10. Pannello di controllo (facoltativo)
+
+Un pannello di **sola lettura** per chi ospita l'istanza: quanti utenti, quante
+piante, se le notifiche arrivano, quali migrazioni sono state applicate. Non può
+scrivere, non può cancellare, non può impersonare nessuno — non esiste il codice
+per farlo.
+
+**Finché `ADMIN_ENABLED` non vale `true`, ogni indirizzo del pannello risponde 404.** Non 403: un 403 confermerebbe che il pannello c'è ed è solo chiuso.
+
+### 10a. Creare il primo amministratore
+
+Dalla shell del container (Dokploy → **Terminal**, oppure via SSH):
+
+```bash
+docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) npm run admin:hash -- --insert
+```
+
+Chiede email e password — la password non compare a schermo e non passa dagli
+argomenti del comando, quindi non finisce in `ps` né nella cronologia della
+shell. Minimo 12 caratteri. L'hash è scrypt con sale.
+
+Senza `--insert` stampa soltanto l'hash e l'`INSERT` pronto, se preferisci
+incollarlo in TablePlus. I comandi di manutenzione stanno in
+`db/admin/insert-admin.sql`.
+
+### 10b. Accendere il pannello
+
+Aggiungi `ADMIN_ENABLED=true` alle variabili d'ambiente (§ 5) e riavvia
+l'applicazione. Poi apri `https://<HOST>/superman`.
+
+**Il secondo fattore è obbligatorio.** Al primo accesso compare un QR da
+inquadrare con l'app di autenticazione (Google Authenticator, Aegis, 1Password…)
+e il segreto anche in chiaro, per chi preferisce digitarlo. Finché non confermi
+un codice non si raggiunge nessuna pagina con dati.
+
+### 10c. Telefono perso
+
+Non c'è nessuna scorciatoia dentro l'applicazione, ed è voluto: un "ho perso il
+telefono" cliccabile dal browser sarebbe il modo più comodo per scavalcare la
+2FA. Si azzera il segreto dal database, e al login successivo riparte
+l'arruolamento con un QR nuovo:
+
+```sql
+update admins
+set totp_secret = null, totp_confirmed_at = null, last_totp_step = null
+where lower(email) = lower('tu@example.com');
+```
+
+Stesso posto per sbloccare un account dopo troppi tentativi falliti:
+
+```sql
+update admins set failed_attempts = 0, locked_until = null
+where lower(email) = lower('tu@example.com');
+```
+
+### 10d. Cosa NON protegge il percorso
+
+`PUBLIC_ADMIN_PATH` ha il prefisso `PUBLIC_` perché serve anche al browser
+(l'hook `reroute` è universale), quindi **quella stringa è dentro il bundle
+servito ai client**. Cambiarla toglie rumore dai log — i bot provano `/admin` e
+`/wp-admin` — e nient'altro. Se vuoi una barriera vera davanti al pannello, usa
+`ADMIN_IP_ALLOWLIST` con l'IP da cui ti colleghi, oppure mettilo dietro VPN.
+
+La verifica che conta, dall'esterno:
+
+```bash
+# Senza ADMIN_ENABLED deve rispondere 404
+curl -o /dev/null -w '%{http_code}\n' https://<HOST>/superman
+
+# Il percorso interno /admin deve SEMPRE rispondere 404, anche a pannello acceso
+curl -o /dev/null -w '%{http_code}\n' https://<HOST>/admin
+
+# Il cookie del pannello deve avere Secure, HttpOnly, SameSite=Strict e Path
+curl -sD- -o /dev/null -X POST https://<HOST>/superman \
+  -H "Origin: https://<HOST>" --data-urlencode 'email=x@y.z' --data-urlencode 'password=zzz' \
+  | grep -i set-cookie
+```
+
+## 11. Backup del database — deliberatamente non configurato
 
 Nessuno Schedule di backup: scelta consapevole per un'app personale.
 
@@ -562,7 +650,7 @@ un backup.
 
 ---
 
-## 11. Aggiornamenti e rollback
+## 12. Aggiornamenti e rollback
 
 - **Aggiornamento**: push su `main` → Dokploy ricostruisce l'immagine. Con il
   pre-deploy command le migrazioni girano prima che il nuovo container prenda
@@ -576,13 +664,13 @@ un backup.
   prima migrazione e usare invece due passaggi (smetti di scrivere la colonna,
   poi la rimuovi in un deploy successivo).
 
-## 12. Checklist finale
+## 13. Checklist finale
 
 - [ ] progetto `plantdaddy` separato dagli altri progetti sulla macchina
 - [ ] `plantdaddy-db` con External Port vuoto
 - [ ] `DATABASE_URL` che punta all'App Name del database, non a localhost
 - [ ] tutte le env var impostate, VAPID incluse
-- [ ] migrazioni applicate (`schema_migrations` contiene `001_init` e `002_action_tokens`)
+- [ ] migrazioni applicate (`schema_migrations` contiene tutte e cinque le versioni)
 - [ ] dominio `<HOST>` con certificato valido
 - [ ] `https://<HOST>/api/health` risponde `{"ok":true}`
 - [ ] `/api/cron/notify` senza header risponde 401
@@ -590,3 +678,6 @@ un backup.
 - [ ] **verifica dall'esterno**: 5432 non raggiungibile, 3000 filtrata
 - [ ] app installata sul telefono e notifiche attivate (su iPhone serve
       l'aggiunta alla Home: vedi README)
+- [ ] pannello di controllo: se NON lo vuoi, `https://<HOST>/superman` risponde
+      404; se lo vuoi, primo admin creato, 2FA configurata e `/admin` che
+      risponde 404

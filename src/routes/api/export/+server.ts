@@ -25,6 +25,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			name,
 			emoji,
 			location,
+			notes,
 			watering_interval_days,
 			fertilizing_interval_days,
 			to_char(water_snoozed_until, 'YYYY-MM-DD') as water_snoozed_until,

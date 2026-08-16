@@ -1,5 +1,7 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
+import { ADMIN_INTERNAL_BASE } from '$lib/admin-path';
 import { hashToken } from '$lib/server/auth';
+import { adminHeaders } from '$lib/server/admin/guard';
 
 /**
  * Risoluzione della sessione.
@@ -20,7 +22,15 @@ import { hashToken } from '$lib/server/auth';
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.request.headers.get('x-session-token')?.trim();
 	event.locals.userTokenHash = token ? hashToken(token) : null;
-	return resolve(event);
+
+	const response = await resolve(event);
+
+	// Header del pannello applicati QUI e non nei singoli load: così coprono
+	// anche le POST delle form action, i redirect e l'immagine del QR, cioè
+	// proprio le risposte che sarebbe più facile dimenticare.
+	if (event.route.id?.startsWith(ADMIN_INTERNAL_BASE)) adminHeaders(response.headers);
+
+	return response;
 };
 
 /** Header il cui valore non deve finire in un log per nessun motivo. */

@@ -15,6 +15,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 	if (body.name !== undefined) patch.name = body.name;
 	if (body.emoji !== undefined) patch.emoji = body.emoji;
 	if (body.location !== undefined) patch.location = body.location;
+	if (body.notes !== undefined) patch.notes = body.notes;
 	if (body.watering_interval_days !== undefined) {
 		patch.watering_interval_days = body.watering_interval_days;
 	}

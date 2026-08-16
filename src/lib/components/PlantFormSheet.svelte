@@ -20,6 +20,7 @@
 	let name = $state(untrack(() => plant?.name ?? ''));
 	let emoji = $state(untrack(() => plant?.emoji ?? '🪴'));
 	let location = $state(untrack(() => plant?.location ?? ''));
+	let notes = $state(untrack(() => plant?.notes ?? ''));
 	let watering = $state(untrack(() => plant?.watering_interval_days ?? 7));
 	let fertilizeOn = $state(
 		untrack(() => (plant ? plant.fertilizing_interval_days !== null : true))
@@ -42,6 +43,7 @@
 				name: name.trim(),
 				emoji: emoji.trim() || null,
 				location: location.trim() || null,
+				notes: notes.trim() || null,
 				watering_interval_days: Number(watering),
 				fertilizing_interval_days: fertilizeOn ? Number(fertilizing) : null
 			});
@@ -105,6 +107,17 @@
 				bind:value={fertilizing}
 				disabled={!fertilizeOn}
 			/>
+		</div>
+
+		<div class="field">
+			<label for="pf-notes">Note</label>
+			<textarea
+				id="pf-notes"
+				bind:value={notes}
+				maxlength="2000"
+				rows="3"
+				placeholder="opzionale — es. luce indiretta, terriccio drenante, d'inverno spostare"
+			></textarea>
 		</div>
 
 		{#if error}<p class="error">{error}</p>{/if}

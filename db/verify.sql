@@ -95,6 +95,20 @@ begin
 		raise exception 'senza storico e senza rinvio next_watering deve essere NULL: %', st.next_watering;
 	end if;
 
+	-- 5c. nota della pianta: la view la espone e il CHECK morde a 2001 caratteri
+	update plants set notes = 'luce indiretta, terriccio drenante' where id = pid;
+	select * into st from plant_status where id = pid;
+	if st.notes is distinct from 'luce indiretta, terriccio drenante' then
+		raise exception 'la view non espone notes: %', st.notes;
+	end if;
+	begin
+		update plants set notes = repeat('x', 2001) where id = pid;
+		raise exception 'nota di 2001 caratteri accettata: manca il CHECK';
+	exception
+		when check_violation then null;
+	end;
+	update plants set notes = null where id = pid;
+
 	-- 6. quota: 305 inserimenti, restano i 300 più recenti
 	insert into plants (user_token_hash, name, watering_interval_days)
 	values (tok, 'Quota', 7) returning id into qid;

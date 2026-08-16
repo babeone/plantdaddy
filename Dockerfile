@@ -50,6 +50,13 @@ COPY package.json ./
 # lanciabili a mano dalla shell del container. Sono pochi KB di SQL.
 COPY db ./db
 COPY scripts ./scripts
+# Unico file di src/ che serve a runtime: scripts/admin-password.ts lo importa
+# per creare l'amministratore con `npm run admin:hash` dalla shell del
+# container. Copiarlo invece di duplicare lo scrypt nello script evita che il
+# formato dell'hash finisca scritto in due posti che possono divergere.
+# Se il file venisse spostato, questa COPY fallisce e la build si ferma: meglio
+# di un comando che si scopre rotto la sera del deploy.
+COPY src/lib/server/admin/password.ts ./src/lib/server/admin/password.ts
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 

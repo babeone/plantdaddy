@@ -34,6 +34,21 @@ export default defineConfig(
 		}
 	},
 	{
+		/**
+		 * Pannello admin: gli href si compongono a runtime da PUBLIC_ADMIN_PATH.
+		 *
+		 * resolve() di $app/paths conosce solo le rotte del filesystem, quindi per
+		 * queste pagine restituirebbe /admin — che reroute() rende volutamente 404.
+		 * L'unico indirizzo giusto è quello pubblico, che è una stringa nota solo a
+		 * runtime e che il router tipizzato non può conoscere.
+		 *
+		 * L'eccezione è ristretta a questa cartella: nel resto dell'app la regola
+		 * resta accesa e continua a intercettare i link scritti a mano.
+		 */
+		files: ['src/routes/admin/**/*.svelte'],
+		rules: { 'svelte/no-navigation-without-resolve': 'off' }
+	},
+	{
 		// Override or add rule settings here, such as:
 		// 'svelte/button-has-type': 'error'
 		rules: {}

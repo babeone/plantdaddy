@@ -29,6 +29,9 @@ ready for Dokploy.
 - **Event history**, not just "last watered": every watering and feeding is a
   row, dates are always _derived_ from it, and deleting an event automatically
   rolls the due date back to the previous one.
+- **Per-plant notes**: a free-text field on the plant itself (soil, exposure,
+  "move it away from the radiator in winter"), separate from the short note you
+  can attach to a single watering.
 - **Winter mode**: a manual global flag that multiplies every interval by a
   configurable factor (default 1.5), with a permanent indicator so you don't
   forget it's on in May.
@@ -184,6 +187,51 @@ node build/index.js  # run the build
 `mockup.html` is the interactive prototype the UI was approved from: a single
 self-contained file, no build step, opens straight in a browser. The logo source
 is `logo.svg`.
+
+## Admin dashboard (optional, off by default)
+
+A **read-only** panel for whoever hosts the instance: how many users there are,
+how many plants they keep, whether push is reaching anyone, which migrations ran.
+It cannot write, delete, or act as a user — there is no code path for it.
+
+**It does not exist until you turn it on.** With `ADMIN_ENABLED` unset, every
+route under the admin path answers `404`, not `403`: a clone of this repository
+is not quietly shipping an admin area.
+
+| Variable               | Default     | Effect                                                          |
+| ---------------------- | ----------- | --------------------------------------------------------------- |
+| `ADMIN_ENABLED`        | unset       | anything other than `true` makes every admin route a 404        |
+| `PUBLIC_ADMIN_PATH`    | `/superman` | public path of the panel                                        |
+| `ADMIN_IP_ALLOWLIST`   | empty       | comma-separated exact IPs; when set, everything else gets a 404 |
+| `ADMIN_SHOW_USER_TEXT` | `false`     | whether user-written notes are displayed or only counted        |
+| `ADMIN_SESSION_HOURS`  | `8`         | absolute session lifetime                                       |
+
+Creating the first administrator:
+
+```bash
+npm run admin:hash -- --insert
+```
+
+It asks for an email and a password (no echo, minimum 12 characters), hashes it
+with **scrypt** and writes the row. Without `--insert` it prints the hash and a
+ready-made `INSERT` you can paste into any SQL client — see
+[`db/admin/insert-admin.sql`](db/admin/insert-admin.sql), which also documents
+the maintenance queries.
+
+Then set `ADMIN_ENABLED=true`, restart, and open the admin path. **TOTP is
+mandatory**: the first login shows a QR code for your authenticator app and will
+not let you reach any data page until you confirm a code. If you lose the phone,
+there is deliberately no in-app escape hatch — you clear `totp_secret` from the
+database and enrol again.
+
+`PUBLIC_ADMIN_PATH` is **not** a security control. It carries the `PUBLIC_`
+prefix because the universal `reroute` hook needs it in the browser too, so the
+value ships in the client bundle. Changing it only keeps `/admin`-scanning bots
+out of your logs. The actual defences are: 404 when disabled, optional IP
+allowlist, scrypt password hashing with per-account lockout, mandatory TOTP with
+replay protection, `HttpOnly` + `SameSite=Strict` cookies scoped to the admin
+path, server-side rendering with **zero client JavaScript** (`csr = false`), and
+an audit table.
 
 ## Deployment
 

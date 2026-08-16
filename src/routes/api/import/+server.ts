@@ -80,6 +80,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 					name: plant.name,
 					emoji: plant.emoji ?? null,
 					location: plant.location ?? null,
+					notes: plant.notes ?? null,
 					watering_interval_days: plant.watering_interval_days,
 					fertilizing_interval_days: plant.fertilizing_interval_days ?? null,
 					water_snoozed_until: plant.water_snoozed_until ?? null,

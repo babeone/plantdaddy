@@ -206,6 +206,13 @@
 			</div>
 		</article>
 
+		{#if plant.notes}
+			<div class="group-title">Note</div>
+			<!-- Testo dell'utente: interpolato, mai {@html}. white-space: pre-wrap
+			     tiene gli a capo che ha scritto senza permettere altro. -->
+			<div class="card"><p class="notes">{plant.notes}</p></div>
+		{/if}
+
 		<div class="group-title">Ritmo</div>
 		<div class="stat-grid">
 			<div class="stat">
@@ -368,6 +375,13 @@
 	.muted-text {
 		font-size: 12.5px;
 		color: var(--text-mute);
+	}
+	.notes {
+		font-size: 14px;
+		line-height: 1.55;
+		color: var(--text-dim);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 	.winter-strip span {
 		flex: 1;

@@ -27,6 +27,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			name: body.name,
 			emoji: body.emoji ?? null,
 			location: body.location ?? null,
+			notes: body.notes ?? null,
 			watering_interval_days: body.watering_interval_days,
 			fertilizing_interval_days: body.fertilizing_interval_days ?? null
 		})}

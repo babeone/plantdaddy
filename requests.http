@@ -50,6 +50,7 @@ Content-Type: application/json
 	"name": "Monstera",
 	"emoji": "🌿",
 	"location": "Salotto",
+	"notes": "Luce indiretta, terriccio drenante. D'inverno spostare lontano dal termosifone.",
 	"watering_interval_days": 7,
 	"fertilizing_interval_days": 30
 }
@@ -77,6 +78,13 @@ X-Session-Token: {{token}}
 Content-Type: application/json
 
 { "name": "Monstera deliciosa", "watering_interval_days": 8 }
+
+### Modifica solo la nota della pianta (null la cancella)
+PATCH {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "notes": "Rinvasata a marzo, vaso da 24 cm." }
 
 ### Elimina pianta (cancella anche i suoi eventi, per CASCADE)
 DELETE {{host}}/api/plants/{{plantId}}
@@ -240,6 +248,7 @@ Content-Type: application/json
 			"name": "Pothos",
 			"emoji": "🍃",
 			"location": "Camera",
+			"notes": "Talee in acqua sul davanzale.",
 			"watering_interval_days": 6,
 			"fertilizing_interval_days": 45
 		}
@@ -320,3 +329,12 @@ Content-Type: application/json
 	"name": "Nome assurdamente lungo che supera i sessanta caratteri consentiti dal CHECK",
 	"watering_interval_days": 7
 }
+
+### Nota oltre 2000 caratteri -> 400 da zod, non 500 dal CHECK del database.
+### Il body va generato: qui basta incollare una stringa di 2001 caratteri.
+# POST {{host}}/api/plants
+# X-Session-Token: {{token}}
+# Content-Type: application/json
+#
+# { "name": "Troppo loquace", "notes": "xxxx…(2001 caratteri)", "watering_interval_days": 7 }
+

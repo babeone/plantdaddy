@@ -18,6 +18,9 @@ const plantFields = {
 	name: z.string().trim().min(1, 'nome obbligatorio').max(60),
 	emoji: z.string().max(8).nullish(),
 	location: z.string().trim().max(60).nullish(),
+	// La nota della PIANTA (scheda), da non confondere con careCreateSchema.note
+	// che è la nota del singolo evento e sta a 280.
+	notes: z.string().trim().max(2000).nullish(),
 	watering_interval_days: z.number().int().min(1).max(365),
 	fertilizing_interval_days: z.number().int().min(1).max(365).nullish()
 };
@@ -29,6 +32,7 @@ export const plantPatchSchema = z
 		name: plantFields.name.optional(),
 		emoji: plantFields.emoji,
 		location: plantFields.location,
+		notes: plantFields.notes,
 		watering_interval_days: plantFields.watering_interval_days.optional(),
 		fertilizing_interval_days: plantFields.fertilizing_interval_days
 	})
