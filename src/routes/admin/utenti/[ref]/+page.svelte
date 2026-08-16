@@ -8,7 +8,9 @@
 
 <p class="crumb"><a href="{data.base}/utenti">← Tutti gli utenti</a></p>
 
-<div class="group-title">Utente {data.user.admin_ref.slice(0, 8)}</div>
+<div class="group-title">
+	{data.user.display_name ?? `Utente senza nome · ${data.user.admin_ref.slice(0, 8)}`}
+</div>
 <div class="stat-grid">
 	<div class="stat">
 		<b>{data.plants.length}</b>
@@ -27,6 +29,15 @@
 		<small>Dispositivi iscritti</small>
 	</div>
 </div>
+
+<!-- admin_ref per intero: è la chiave con cui si riempie a mano display_name
+     delle sessioni create prima che il nome fosse obbligatorio, e l'unico
+     identificatore di questo utente che si possa scrivere in una query senza
+     toccare token_hash. select-all per copiarlo con un tap. -->
+<p class="riferimento">
+	<span>Riferimento</span>
+	<code>{data.user.admin_ref}</code>
+</p>
 
 <div class="group-title">Piante</div>
 {#if data.plants.length === 0}
@@ -97,6 +108,19 @@
 	.crumb a {
 		color: var(--text-mute);
 		text-decoration: none;
+	}
+	.riferimento {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		font-size: 11.5px;
+		color: var(--text-mute);
+		margin: -4px 4px 4px;
+	}
+	.riferimento code {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		user-select: all;
+		overflow-wrap: anywhere;
 	}
 	.avatar.small {
 		width: 32px;

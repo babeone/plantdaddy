@@ -10,6 +10,7 @@
 	import { today } from '$lib/date';
 
 	let token = $state<string | null>(null);
+	let displayName = $state('');
 	let creating = $state(false);
 	let error = $state<string | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
@@ -24,11 +25,20 @@
 		if (canvas && token) void drawQr(canvas, token);
 	});
 
-	async function createSession() {
+	async function createSession(event: SubmitEvent) {
+		event.preventDefault();
+		// Il controllo vero è del server (zod, e il CHECK del database): questo
+		// serve solo a dare la risposta subito, senza un giro di rete.
+		const name = displayName.trim();
+		if (!name) {
+			error = 'Scrivi come ti chiami';
+			return;
+		}
+
 		creating = true;
 		error = null;
 		try {
-			const data = await api.post<{ token: string }>('/session');
+			const data = await api.post<{ token: string }>('/session', { display_name: name });
 			await session.adopt(data.token);
 			token = data.token;
 		} catch (err) {
@@ -65,9 +75,27 @@
 	</div>
 
 	{#if !token}
-		<button class="btn btn-primary" onclick={createSession} disabled={creating}>
-			{creating ? 'Creo la sessione…' : 'Inizia'}
-		</button>
+		<!-- Una <form> e non un bottone sciolto: così l'invio da tastiera funziona,
+		     e `required` fa comparire il messaggio nativo del browser prima ancora
+		     che parta una richiesta. -->
+		<form onsubmit={createSession}>
+			<div class="field">
+				<label for="bv-nome">Come ti chiami?</label>
+				<input
+					id="bv-nome"
+					bind:value={displayName}
+					maxlength="60"
+					autocomplete="nickname"
+					placeholder="es. Andrea"
+					required
+				/>
+				<p class="field-hint">Serve solo a distinguerti. Non è un account e non è pubblico.</p>
+			</div>
+
+			<button class="btn btn-primary" type="submit" disabled={creating}>
+				{creating ? 'Creo la sessione…' : 'Inizia'}
+			</button>
+		</form>
 		{#if error}
 			<p class="error">{error}</p>
 		{/if}
@@ -151,6 +179,11 @@
 		color: var(--text-dim);
 		font-size: 15px;
 		margin-top: 8px;
+	}
+	.field-hint {
+		font-size: 12px;
+		color: var(--text-mute);
+		margin-top: 6px;
 	}
 	.token-label {
 		font-size: 13px;

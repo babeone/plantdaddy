@@ -17,9 +17,15 @@
 	<div class="group">
 		{#each data.users as user (user.admin_ref)}
 			<a class="item" href="{data.base}/utenti/{user.admin_ref}">
-				<span class="ref">{short(user.admin_ref)}</span>
 				<span class="facts">
-					<span>{user.plants} piante · {user.events} eventi</span>
+					{#if user.display_name}
+						<span class="nome">{user.display_name}</span>
+					{:else}
+						<!-- Sessione creata prima che il nome fosse obbligatorio: si mostra
+						     admin_ref, che è anche la chiave con cui riempirlo a mano. -->
+						<span class="nome anonimo">senza nome · {short(user.admin_ref)}</span>
+					{/if}
+					<small>{user.plants} piante · {user.events} eventi</small>
 					<small>
 						iscritto il {date(user.created_at)}
 						{#if user.last_event}· ultimo evento {user.last_event}{/if}
@@ -48,12 +54,15 @@
 {/if}
 
 <style>
-	.ref {
+	.nome {
+		font-weight: 650;
+		overflow-wrap: anywhere;
+	}
+	.nome.anonimo {
+		font-weight: 500;
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 12px;
+		font-size: 12.5px;
 		color: var(--text-mute);
-		width: 68px;
-		flex-shrink: 0;
 	}
 	.facts {
 		flex: 1;

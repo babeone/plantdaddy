@@ -16,9 +16,24 @@
 ### Healthcheck — nessuna autenticazione, risponde solo { ok: true }
 GET {{host}}/api/health
 
-### Crea sessione (rate limit: 5 per IP all'ora)
+### Crea sessione (rate limit: 5 per IP all'ora). Il nome è obbligatorio.
 # @name session
 POST {{host}}/api/session
+Content-Type: application/json
+
+{ "display_name": "Andrea" }
+
+### Senza nome -> 400, e nessuna riga creata in users
+POST {{host}}/api/session
+Content-Type: application/json
+
+{}
+
+### Nome di soli spazi -> 400: zod fa il trim prima di misurare la lunghezza
+POST {{host}}/api/session
+Content-Type: application/json
+
+{ "display_name": "   " }
 
 ### Verifica token — nel BODY, per la schermata di ripristino
 POST {{host}}/api/session/verify

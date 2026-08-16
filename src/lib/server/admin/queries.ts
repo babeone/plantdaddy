@@ -71,6 +71,16 @@ export async function notifyHourHistogram(): Promise<{ hour: number; users: numb
 
 export type UserRow = {
 	admin_ref: string;
+	/**
+	 * NULL per le sessioni create prima della migrazione 007: non c'era modo di
+	 * chiedere il nome a chi era già registrato. Il pannello lo mostra come
+	 * "senza nome" invece di inventarne uno.
+	 *
+	 * Non passa da ADMIN_SHOW_USER_TEXT, come i nomi delle piante: è il campo che
+	 * risponde alla domanda per cui l'elenco esiste, e senza di esso restano otto
+	 * cifre esadecimali.
+	 */
+	display_name: string | null;
 	created_at: Date;
 	plants: number;
 	events: number;
@@ -100,13 +110,14 @@ export type UserRow = {
 export async function listUsers(limit: number, offset: number): Promise<UserRow[]> {
 	return sql<UserRow[]>`
 		with pagina as (
-			select token_hash, admin_ref, created_at, notify_hour, winter_mode
+			select token_hash, admin_ref, display_name, created_at, notify_hour, winter_mode
 			from users
 			order by created_at desc
 			limit ${limit} offset ${offset}
 		)
 		select
 			u.admin_ref,
+			u.display_name,
 			u.created_at,
 			u.notify_hour,
 			u.winter_mode,
@@ -142,6 +153,7 @@ export async function countUsers(): Promise<number> {
 
 export type UserDetail = {
 	admin_ref: string;
+	display_name: string | null;
 	created_at: Date;
 	notify_hour: number;
 	winter_mode: boolean;
@@ -157,6 +169,7 @@ export async function getUser(adminRef: string): Promise<UserDetail | undefined>
 	const [row] = await sql<UserDetail[]>`
 		select
 			u.admin_ref,
+			u.display_name,
 			u.created_at,
 			u.notify_hour,
 			u.winter_mode,

@@ -13,8 +13,11 @@ import { today } from '$lib/server/date';
 export const GET: RequestHandler = async ({ locals }) => {
 	const tokenHash = await requireUser(locals);
 
+	// display_name esce nel backup ma NON viene riletto dall'import (vedi la nota
+	// in api/import): serve a rendere il file leggibile a chi lo apre, non a
+	// rinominare la sessione in cui il file viene caricato.
 	const [settings] = await sql`
-		select notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier
+		select display_name, notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier
 		from users
 		where token_hash = ${tokenHash}
 	`;

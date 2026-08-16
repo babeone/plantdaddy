@@ -64,6 +64,21 @@ export const sessionTokenSchema = z.object({
 	token: z.string().trim().min(8).max(200)
 });
 
+/**
+ * Creazione della sessione: il nome è OBBLIGATORIO.
+ *
+ * È l'unica cosa che l'app chiede prima di generare il token, e serve al
+ * proprietario dell'istanza per sapere chi c'è nel pannello di controllo. Le
+ * sessioni create prima di questa versione hanno display_name NULL, e la
+ * colonna resta nullable per loro: vedi db/migrations/007_nome_utente.sql.
+ *
+ * .trim() prima di .min(1): senza, una stringa di soli spazi passerebbe la
+ * lunghezza minima e finirebbe nel database come nome vuoto.
+ */
+export const sessionCreateSchema = z.object({
+	display_name: z.string().trim().min(1, 'il nome è obbligatorio').max(60)
+});
+
 /** Forma esatta di PushSubscription.toJSON() del browser. */
 export const pushSubscribeSchema = z.object({
 	endpoint: z.string().min(1).max(1000),

@@ -109,6 +109,26 @@ begin
 	end;
 	update plants set notes = null where id = pid;
 
+	-- 5d. nome utente: opzionale nello schema (le sessioni vecchie hanno NULL),
+	-- ma se c'è deve stare fra 1 e 60 caratteri. L'obbligatorietà per le sessioni
+	-- NUOVE la impone l'API, non il database.
+	update users set display_name = 'Andrea' where token_hash = tok;
+	begin
+		update users set display_name = '' where token_hash = tok;
+		raise exception 'nome utente vuoto accettato: manca il CHECK';
+	exception
+		when check_violation then null;
+	end;
+	begin
+		update users set display_name = repeat('x', 61) where token_hash = tok;
+		raise exception 'nome utente di 61 caratteri accettato: manca il CHECK';
+	exception
+		when check_violation then null;
+	end;
+	-- NULL deve restare consentito, altrimenti le sessioni già registrate
+	-- diventerebbero non aggiornabili.
+	update users set display_name = null where token_hash = tok;
+
 	-- 6. quota: 305 inserimenti, restano i 300 più recenti
 	insert into plants (user_token_hash, name, watering_interval_days)
 	values (tok, 'Quota', 7) returning id into qid;

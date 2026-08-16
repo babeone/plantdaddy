@@ -16,9 +16,11 @@ ready for Dokploy.
 
 ## What it does
 
-- **No login.** First launch generates a UUID v4, shown as text and as a
-  downloadable QR code. Paste the code — or upload a photo of the QR — to restore
-  the session on another device.
+- **No login.** First launch asks for a display name — the only thing it asks —
+  and generates a UUID v4, shown as text and as a downloadable QR code. Paste the
+  code, or upload a photo of the QR, to restore the session on another device.
+  The name is not an account and is never shown publicly: it exists so whoever
+  hosts the instance can tell users apart in the admin panel.
 - **One tap to log care.** The main view is "what needs doing today"; a single
   tap on _Annaffiata_ / _Concimata_ records the event with today's date, with an
   optimistic update so the card reacts before the network does.

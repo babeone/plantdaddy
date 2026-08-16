@@ -1,0 +1,33 @@
+-- 007_nome_utente — un nome per chi usa l'app
+--
+-- Serve al pannello di controllo: prima di questa colonna un utente era solo
+-- admin_ref, cioè otto cifre esadecimali, e l'elenco non diceva niente su chi
+-- fosse chi.
+--
+-- La colonna è NULLABLE, e resta tale apposta.
+--
+-- Da qui in avanti il nome è OBBLIGATORIO alla creazione della sessione: lo
+-- impone POST /api/session con zod, e la schermata di benvenuto non lascia
+-- proseguire senza. Ma gli utenti già registrati non hanno modo di fornirlo —
+-- non c'è login, non c'è email, non c'è nessun posto dove chiederglielo — e un
+-- `not null` avrebbe fatto fallire la migrazione o li avrebbe battezzati tutti
+-- con lo stesso valore di riempimento, che è peggio di NULL perché sembra un
+-- dato vero. NULL significa "non lo sappiamo", e il pannello lo mostra come
+-- tale.
+--
+-- Per riempirli a mano da TablePlus, uno alla volta, riconoscendoli da
+-- admin_ref (è quello che compare nell'elenco del pannello):
+--
+--   select admin_ref, created_at, display_name from users order by created_at;
+--   update users set display_name = 'Andrea'
+--   where admin_ref = '00000000-0000-0000-0000-000000000000';
+--
+-- Il CHECK non tocca le righe esistenti: in SQL una condizione su NULL vale
+-- NULL, non falso, e un CHECK passa quando non è esplicitamente falso. Vincola
+-- solo i valori davvero scritti — compresi quelli che scriverai a mano, quindi
+-- una stringa vuota viene rifiutata anche da TablePlus.
+--
+-- Limite 60 come plants.name, e ripetuto identico in src/lib/server/schemas.ts.
+
+alter table users
+	add column display_name text check (length(display_name) between 1 and 60);

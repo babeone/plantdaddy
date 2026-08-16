@@ -127,6 +127,11 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 			eventsImported += inserted.length;
 		}
 
+		// display_name è ESCLUSO di proposito, anche se l'export lo scrive.
+		// L'import scarica un file dentro una sessione che esiste già: leggerlo
+		// significherebbe che caricare il backup di qualcun altro — o un backup
+		// vecchio — rinomina la sessione corrente senza chiedere niente. Non è una
+		// perdita: una sessione nuova il nome se lo fa dare alla creazione.
 		if (backup.settings) {
 			const patch: Record<string, unknown> = {};
 			if (backup.settings.notify_hour !== undefined) {
