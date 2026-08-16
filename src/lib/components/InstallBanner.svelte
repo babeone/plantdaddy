@@ -54,7 +54,7 @@
 		bottom: calc(94px + var(--safe-b));
 		width: min(430px, 100%);
 		margin-inline: auto;
-		padding: 0 12px;
+		padding: 0 calc(12px + var(--safe-r)) 0 calc(12px + var(--safe-l));
 		z-index: 30;
 	}
 	.inner {

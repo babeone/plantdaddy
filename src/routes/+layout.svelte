@@ -7,6 +7,8 @@
 	import { DUR, EASE_OUT, dur, prefersReducedMotion } from '$lib/motion';
 	import InstallBanner from '$lib/components/InstallBanner.svelte';
 	import InstallGuide from '$lib/components/InstallGuide.svelte';
+	import PullToRefresh from '$lib/components/PullToRefresh.svelte';
+	import SessionRecovery from '$lib/components/SessionRecovery.svelte';
 	import { session } from '$lib/stores/session.svelte';
 	import { plants } from '$lib/stores/plants.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -40,6 +42,10 @@
 		// installabile. Il PERMESSO delle notifiche invece non viene mai chiesto
 		// qui: parte solo dal bottone in Impostazioni.
 		void push.register();
+		// Il token viene confermato col server PRIMA di qualunque richiesta
+		// autenticata: così un 401 non può più nascere da una richiesta partita
+		// troppo presto, e resta un segnale univoco di sessione rifiutata.
+		void session.verify();
 	});
 
 	// Guardia: senza token si finisce sulla schermata di benvenuto.
@@ -50,13 +56,20 @@
 		}
 	});
 
-	// Primo caricamento dati appena la sessione è nota.
+	// Primo caricamento dati solo a sessione confermata.
 	$effect(() => {
-		if (session.isAuthenticated && !plants.loaded && !plants.loading) {
+		if (session.verified && !plants.loaded && !plants.loading) {
 			void plants.load();
 			void plants.loadSettings();
 		}
 	});
+
+	/** Trascinamento dall'alto: rilegge i dati senza far ripartire l'app. */
+	async function refreshData() {
+		if (!session.verified) return;
+		await plants.load();
+		await plants.loadSettings();
+	}
 
 	/**
 	 * Transizione tra viste con la View Transitions API.
@@ -146,12 +159,19 @@
 	{/if}
 </div>
 
-{#if showNav}
+<!-- Con la sessione rifiutata l'utente ha un solo problema da risolvere:
+     banner di installazione e trascina-per-aggiornare sarebbero rumore. -->
+{#if showNav && !session.rejected}
 	<InstallBanner onguide={() => (showGuide = true)} />
+	<PullToRefresh onrefresh={refreshData} />
 {/if}
 
 {#if showGuide}
 	<InstallGuide onclose={() => (showGuide = false)} />
+{/if}
+
+{#if session.rejected}
+	<SessionRecovery />
 {/if}
 
 <div id="toast-layer">

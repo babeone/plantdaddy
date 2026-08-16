@@ -27,6 +27,9 @@
 	async function snooze() {
 		try {
 			await plants.snooze(plant.id, needs[0] ?? 'water', 1);
+			// La card esce dalla lista con un'animazione che può sfuggire: senza
+			// una conferma il gesto sembrava non aver fatto niente.
+			toasts.show('Rimandata a domani');
 		} catch {
 			toasts.error(plants.error ?? 'Rinvio non riuscito');
 		}

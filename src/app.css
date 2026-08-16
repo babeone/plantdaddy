@@ -92,7 +92,13 @@
 	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
 	--shadow-2: 0 8px 28px rgba(0, 0, 0, 0.55);
 
+	/* --- safe area: con viewport-fit=cover e la status bar translucida su iOS
+     il contenuto passa SOTTO notch, Dynamic Island e home indicator. Serve
+     tenerne conto su tutti e quattro i lati, non solo in basso. --- */
+	--safe-t: env(safe-area-inset-top, 0px);
+	--safe-r: env(safe-area-inset-right, 0px);
 	--safe-b: env(safe-area-inset-bottom, 0px);
+	--safe-l: env(safe-area-inset-left, 0px);
 
 	/* --- tipografia: un solo font per tutti i dispositivi.
      I fallback servono solo nei millisecondi prima che il woff2 sia
@@ -111,6 +117,13 @@
 html,
 body {
 	height: 100%;
+}
+/* overscroll-behavior propaga al viewport SOLO dall'elemento radice: su body
+   non ha effetto, ed è per questo che il pull-to-refresh di Chrome Android
+   ricaricava l'app. `contain` ferma il rimbalzo senza disabilitare lo scroll:
+   il gesto lo intercetta PullToRefresh.svelte e aggiorna solo i dati. */
+html {
+	overscroll-behavior-y: contain;
 }
 body {
 	margin: 0;
@@ -166,6 +179,10 @@ ul {
 #app {
 	max-width: 430px;
 	margin: 0 auto;
+	/* In landscape il notch mangia un bordo: senza questo il contenuto ci
+	   finisce sotto. */
+	padding-left: var(--safe-l);
+	padding-right: var(--safe-r);
 	min-height: 100vh; /* fallback per browser senza dvh */
 	min-height: 100dvh;
 	background: var(--bg);
@@ -193,7 +210,9 @@ ul {
 	background: color-mix(in srgb, var(--bg) 88%, transparent);
 	backdrop-filter: blur(12px);
 	border-bottom: 1px solid var(--line);
-	padding: 14px 16px 10px;
+	/* Il padding superiore include l'inset: sotto la Dynamic Island sono ~59pt,
+	   e con i soli 14px il logo e il bottone Indietro finivano coperti. */
+	padding: calc(14px + var(--safe-t)) 16px 10px;
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -234,7 +253,7 @@ ul {
 	background: var(--brand-soft);
 }
 .topbar-home {
-	padding: 12px 16px 10px;
+	padding: calc(12px + var(--safe-t)) 16px 10px;
 	gap: 12px;
 }
 .brand {
@@ -510,7 +529,7 @@ ul {
 }
 @media (max-width: 460px) {
 	.fab {
-		right: 16px;
+		right: calc(16px + var(--safe-r));
 	}
 }
 .fab:active {

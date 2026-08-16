@@ -59,9 +59,11 @@
 		margin-inline: auto;
 		background: var(--surface);
 		border-radius: var(--r-xl) var(--r-xl) 0 0;
-		padding: 10px 18px calc(22px + var(--safe-b));
+		padding: 10px calc(18px + var(--safe-r)) calc(22px + var(--safe-b)) calc(18px + var(--safe-l));
 		box-shadow: var(--shadow-2);
-		max-height: 88vh;
+		/* dvh come il resto dell'app: con vh la barra dinamica di iOS fa
+		   sbordare il foglio oltre l'area visibile. */
+		max-height: 88dvh;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 	}

@@ -8,6 +8,10 @@
 --   psql "$DATABASE_URL" -f db/verify.sql
 --
 -- Se qualcosa non torna solleva un'eccezione con il valore trovato.
+--
+-- I confronti usano `is distinct from` e non `<>`: in SQL `NULL <> x` vale NULL,
+-- quindi un `if` non scatta e un valore mancante passerebbe il controllo invece
+-- di farlo fallire — che è esattamente il modo in cui un test dà falsa sicurezza.
 
 begin;
 
@@ -29,20 +33,21 @@ begin
 
 	-- 1. intervalli nominali e scadenze derivate
 	select * into st from plant_status where id = pid;
-	if st.last_watered <> current_date - 3 then
+	if st.last_watered is distinct from current_date - 3 then
 		raise exception 'last_watered atteso %, trovato %', current_date - 3, st.last_watered;
 	end if;
-	if st.next_watering <> current_date + 4 then
+	if st.next_watering is distinct from current_date + 4 then
 		raise exception 'next_watering atteso %, trovato %', current_date + 4, st.next_watering;
 	end if;
-	if st.next_fertilizing <> current_date + 20 then
+	if st.next_fertilizing is distinct from current_date + 20 then
 		raise exception 'next_fertilizing atteso %, trovato %', current_date + 20, st.next_fertilizing;
 	end if;
 
 	-- 2. modalità inverno: 7 x 1.5 = 10.5 -> 11, 30 x 1.5 = 45
 	update users set winter_mode = true where token_hash = tok;
 	select * into st from plant_status where id = pid;
-	if st.effective_watering_interval <> 11 or st.effective_fertilizing_interval <> 45 then
+	if st.effective_watering_interval is distinct from 11
+		or st.effective_fertilizing_interval is distinct from 45 then
 		raise exception 'inverno: intervalli % e %', st.effective_watering_interval, st.effective_fertilizing_interval;
 	end if;
 	update users set winter_mode = false where token_hash = tok;
@@ -50,12 +55,12 @@ begin
 	-- 3. snooze futuro prevale, snooze passato non arretra la scadenza
 	update plants set water_snoozed_until = current_date + 30 where id = pid;
 	select * into st from plant_status where id = pid;
-	if st.next_watering <> current_date + 30 then
+	if st.next_watering is distinct from current_date + 30 then
 		raise exception 'snooze futuro ignorato: %', st.next_watering;
 	end if;
 	update plants set water_snoozed_until = current_date - 90 where id = pid;
 	select * into st from plant_status where id = pid;
-	if st.next_watering <> current_date + 4 then
+	if st.next_watering is distinct from current_date + 4 then
 		raise exception 'snooze passato ha arretrato la scadenza: %', st.next_watering;
 	end if;
 	update plants set water_snoozed_until = null where id = pid;
@@ -64,7 +69,8 @@ begin
 	insert into care_events (plant_id, type, event_date) values (pid, 'water', current_date - 17);
 	delete from care_events where plant_id = pid and type = 'water' and event_date = current_date - 3;
 	select * into st from plant_status where id = pid;
-	if st.last_watered <> current_date - 17 or st.next_watering <> current_date - 10 then
+	if st.last_watered is distinct from current_date - 17
+		or st.next_watering is distinct from current_date - 10 then
 		raise exception 'rollback data: last % next %', st.last_watered, st.next_watering;
 	end if;
 
@@ -76,13 +82,26 @@ begin
 		raise exception 'senza eventi le scadenze devono essere NULL: % %', st.next_watering, st.next_fertilizing;
 	end if;
 
+	-- 5b. snooze su pianta MAI curata: deve valere lo stesso (bug corretto in 003)
+	update plants set water_snoozed_until = current_date + 3 where id = pid;
+	select * into st from plant_status where id = pid;
+	if st.next_watering is distinct from current_date + 3 then
+		raise exception 'snooze su pianta senza storico ignorato: next_watering = %', st.next_watering;
+	end if;
+	-- e senza rinvio si torna a NULL, cioè "da fare adesso"
+	update plants set water_snoozed_until = null where id = pid;
+	select * into st from plant_status where id = pid;
+	if st.next_watering is not null then
+		raise exception 'senza storico e senza rinvio next_watering deve essere NULL: %', st.next_watering;
+	end if;
+
 	-- 6. quota: 305 inserimenti, restano i 300 più recenti
 	insert into plants (user_token_hash, name, watering_interval_days)
 	values (tok, 'Quota', 7) returning id into qid;
 	insert into care_events (plant_id, type, event_date)
 	select qid, 'water', current_date - g from generate_series(0, 304) g;
 	select count(*), min(event_date) into n, oldest from care_events where plant_id = qid;
-	if n <> 300 or oldest <> current_date - 299 then
+	if n is distinct from 300 or oldest is distinct from current_date - 299 then
 		raise exception 'rotazione FIFO: % eventi, più vecchio %', n, oldest;
 	end if;
 

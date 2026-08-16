@@ -3,17 +3,37 @@ import { api } from '$lib/api';
 import { daysFromToday, today } from '$lib/date';
 import type { CareType, Plant, PlantInput, PlantState, Settings } from '$lib/types';
 
-/** Stato di una pianta a partire dalle scadenze calcolate dalla view. */
+/** true se quel tipo di cura è stato rimandato a una data futura. */
+function isSnoozed(plant: Plant, type: CareType): boolean {
+	const until = type === 'water' ? plant.water_snoozed_until : plant.fertilize_snoozed_until;
+	return until !== null && daysFromToday(until) > 0;
+}
+
+/**
+ * Stato di una pianta a partire dalle scadenze calcolate dalla view.
+ *
+ * Lo snooze si guarda PRIMA del caso "mai curata": una pianta senza storico ha
+ * next_watering nullo, e valutandolo per primo il rinvio restava invisibile —
+ * la card non usciva dalla Home e la pill continuava a dire "Mai curata".
+ */
 export function plantState(plant: Plant): PlantState {
+	const pending = dueTypes(plant);
+	const snoozedTypes = careTypesOf(plant).filter((type) => isSnoozed(plant, type));
+
+	// Tutto ciò che era in scadenza è stato rimandato: niente da fare oggi.
+	if (pending.length === 0 && snoozedTypes.length > 0) return 'snoozed';
+
 	const due = nextDueDays(plant);
-	if (due === null) return 'today'; // mai curata: da fare adesso
-	const snoozed =
-		maxDays(plant.water_snoozed_until, plant.fertilize_snoozed_until) ?? Number.NEGATIVE_INFINITY;
-	if (due > 0 && snoozed >= due) return 'snoozed';
+	if (due === null) return 'today'; // mai curata e non rimandata: da fare adesso
 	if (due < 0) return 'late';
 	if (due === 0) return 'today';
 	if (due <= 3) return 'soon';
 	return 'ok';
+}
+
+/** I tipi di cura previsti per questa pianta (il concime è opzionale). */
+function careTypesOf(plant: Plant): CareType[] {
+	return plant.fertilizing_interval_days === null ? ['water'] : ['water', 'fertilize'];
 }
 
 /** Giorni alla prima scadenza (acqua o concime). null se non ce n'è nessuna. */
@@ -21,20 +41,32 @@ export function nextDueDays(plant: Plant): number | null {
 	const dates = [plant.next_watering, plant.next_fertilizing].filter(
 		(date): date is string => date !== null
 	);
-	if (plant.next_watering === null) return null; // mai annaffiata
+	if (dates.length === 0) return null;
+	// Se l'acqua non ha una scadenza calcolabile ed è nemmeno rimandata, la
+	// pianta è da curare adesso: lo dice il chiamante, non questa funzione.
+	if (plant.next_watering === null && !isSnoozed(plant, 'water')) return null;
 	return Math.min(...dates.map(daysFromToday));
 }
 
-function maxDays(...dates: (string | null)[]): number | null {
-	const values = dates.filter((date): date is string => date !== null).map(daysFromToday);
-	return values.length > 0 ? Math.max(...values) : null;
-}
-
-/** Cosa serve oggi: tipi di cura scaduti o in scadenza odierna. */
+/**
+ * Cosa serve oggi: tipi di cura scaduti o in scadenza odierna, escludendo
+ * quelli rimandati. Il controllo sullo snooze serve anche quando next_* è
+ * nullo, cioè proprio sulle piante mai curate.
+ */
 export function dueTypes(plant: Plant): CareType[] {
 	const out: CareType[] = [];
-	if (plant.next_watering === null || daysFromToday(plant.next_watering) <= 0) out.push('water');
-	if (plant.next_fertilizing !== null && daysFromToday(plant.next_fertilizing) <= 0) {
+	if (
+		!isSnoozed(plant, 'water') &&
+		(plant.next_watering === null || daysFromToday(plant.next_watering) <= 0)
+	) {
+		out.push('water');
+	}
+	if (
+		plant.fertilizing_interval_days !== null &&
+		!isSnoozed(plant, 'fertilize') &&
+		plant.next_fertilizing !== null &&
+		daysFromToday(plant.next_fertilizing) <= 0
+	) {
 		out.push('fertilize');
 	}
 	return out;
@@ -146,17 +178,14 @@ class PlantsStore {
 
 		const until = addDaysIso(today(), days);
 		const optimistic: Plant = { ...plant };
-		if (type === 'water') optimistic.water_snoozed_until = until;
-		else optimistic.fertilize_snoozed_until = until;
-		if (type === 'water' && optimistic.next_watering && optimistic.next_watering < until) {
-			optimistic.next_watering = until;
-		}
-		if (
-			type === 'fertilize' &&
-			optimistic.next_fertilizing &&
-			optimistic.next_fertilizing < until
-		) {
-			optimistic.next_fertilizing = until;
+		// Senza la parte `?? until` una pianta mai curata restava con next_* a
+		// null e il rinvio non si vedeva finché non tornava la risposta.
+		if (type === 'water') {
+			optimistic.water_snoozed_until = until;
+			if ((optimistic.next_watering ?? until) <= until) optimistic.next_watering = until;
+		} else {
+			optimistic.fertilize_snoozed_until = until;
+			if ((optimistic.next_fertilizing ?? until) <= until) optimistic.next_fertilizing = until;
 		}
 		this.replace(optimistic);
 

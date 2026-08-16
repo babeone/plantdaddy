@@ -25,13 +25,30 @@ class SessionStore {
 	storagePersisted = $state<boolean | null>(null); // null = non ancora verificato
 	ready = $state(false);
 
+	/**
+	 * Il server ha risposto che questo token non esiste.
+	 *
+	 * NON cancella niente: il token resta in localStorage e nel cookie, e l'app
+	 * mostra una schermata di recupero. Senza account quel token è l'unica chiave
+	 * dei dati, e un 401 può arrivare anche per motivi transitori — un proxy che
+	 * perde l'header, un database ripristinato, una richiesta partita troppo
+	 * presto. Buttarlo via da soli renderebbe i dati irraggiungibili per sempre.
+	 */
+	rejected = $state(false);
+
+	/** Verificato col server almeno una volta in questa sessione di pagina. */
+	verified = $state(false);
+
+	private loaded = false;
+
 	get isAuthenticated(): boolean {
 		return this.token !== null;
 	}
 
-	/** Da chiamare una volta all'avvio, lato client. */
+	/** Da chiamare all'avvio, lato client. Idempotente. */
 	load(): void {
-		if (!browser) return;
+		if (!browser || this.loaded) return;
+		this.loaded = true;
 
 		const fromLocal = safeLocalGet();
 		const fromCookie = readCookie(COOKIE_NAME);
@@ -48,16 +65,62 @@ class SessionStore {
 		void this.refreshPersistedFlag();
 	}
 
+	/**
+	 * Chiede al server se il token è ancora valido, una volta sola all'avvio.
+	 *
+	 * Serve a togliere di mezzo una dipendenza implicita: senza questo, la prima
+	 * richiesta autenticata poteva partire prima che la sessione fosse letta
+	 * dallo storage, e il 401 che ne seguiva era indistinguibile da un rifiuto
+	 * vero. Qui invece nessuna richiesta autenticata parte prima della conferma.
+	 */
+	async verify(): Promise<boolean> {
+		if (!browser || !this.token) return false;
+		try {
+			const response = await fetch('/api/session/verify', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ token: this.token })
+			});
+			if (!response.ok) return this.verified; // problema di rete: non cambia nulla
+			const data = (await response.json()) as { valid: boolean };
+			this.verified = data.valid;
+			this.rejected = !data.valid;
+			return data.valid;
+		} catch {
+			// Offline o server irraggiungibile: non è un rifiuto della sessione.
+			return this.verified;
+		}
+	}
+
+	markRejected(): void {
+		this.rejected = true;
+		this.verified = false;
+	}
+
+	clearRejected(): void {
+		this.rejected = false;
+	}
+
 	/** Salva il token nelle due sedi e chiede al browser storage persistente. */
 	async adopt(token: string): Promise<void> {
 		this.token = token;
+		this.rejected = false;
+		this.verified = true; // adottato dopo una verifica o una creazione riuscita
 		safeLocalSet(token);
 		writeCookie(COOKIE_NAME, token, COOKIE_DAYS);
 		await this.requestPersistence();
 	}
 
+	/**
+	 * Cancella davvero la sessione dal dispositivo.
+	 *
+	 * Da invocare SOLO su gesto esplicito dell'utente (ripristino con un altro
+	 * codice). Nessuna risposta del server deve poter arrivare qui da sola.
+	 */
 	clear(): void {
 		this.token = null;
+		this.rejected = false;
+		this.verified = false;
 		try {
 			localStorage.removeItem(STORAGE_KEY);
 		} catch {

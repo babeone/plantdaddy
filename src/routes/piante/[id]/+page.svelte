@@ -13,6 +13,7 @@
 	import { formatRelative } from '$lib/date';
 	import { DUR, EASE_OUT, dur } from '$lib/motion';
 	import { dueTypes, plants } from '$lib/stores/plants.svelte';
+	import { session } from '$lib/stores/session.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import type { CareEvent, CareType } from '$lib/types';
 
@@ -61,7 +62,10 @@
 	});
 
 	$effect(() => {
-		if (!plantId) return;
+		// Anche la sessione confermata, non solo l'id: era l'unica chiamata
+		// automatica dell'app che partiva senza aspettare il bootstrap, e un 401
+		// da lì era indistinguibile da un rifiuto vero.
+		if (!plantId || !session.verified) return;
 		void loadEvents();
 	});
 
@@ -186,9 +190,11 @@
 				{#if dueTypes(plant).length > 0}
 					<button
 						class="btn btn-mini"
+						disabled={plants.pending.has(plantId)}
 						onclick={async () => {
 							try {
 								await plants.snooze(plantId, dueTypes(plant)[0], 1);
+								toasts.show('Rimandata a domani');
 							} catch {
 								toasts.error(plants.error ?? 'Rinvio non riuscito');
 							}
@@ -246,6 +252,16 @@
 					<path d="M12 8v4l2.5 2.5" />
 				</svg>
 				<div>Annaffiatura rimandata a {formatRelative(plant.water_snoozed_until)}.</div>
+			</div>
+		{/if}
+
+		{#if plant.fertilize_snoozed_until}
+			<div class="warn muted spaced">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="9" />
+					<path d="M12 8v4l2.5 2.5" />
+				</svg>
+				<div>Concimazione rimandata a {formatRelative(plant.fertilize_snoozed_until)}.</div>
 			</div>
 		{/if}
 

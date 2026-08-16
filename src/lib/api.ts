@@ -9,6 +9,21 @@ export class ApiError extends Error {
 }
 
 /**
+ * Un 401 NON cancella mai la sessione.
+ *
+ * Il server distingue due casi che al client arrivano identici: "header
+ * mancante" (la richiesta è partita senza token, quindi è un problema di ordine
+ * nostro) e "sessione non valida" (il token c'è ma il server non lo conosce).
+ * Solo il secondo è un rifiuto, e anche allora ci si limita a marcare la
+ * sessione: il token resta nello storage e l'utente decide cosa farne.
+ * Cancellarlo da soli, senza account, significa rendere i dati irraggiungibili.
+ */
+function handleUnauthorized(status: number, sentToken: string | null): void {
+	if (status !== 401) return;
+	if (sentToken && sentToken === session.token) session.markRejected();
+}
+
+/**
  * Unico punto da cui passano le chiamate al backend.
  *
  * Il token va SEMPRE nell'header X-Session-Token, mai in query string: una URL
@@ -18,19 +33,17 @@ export class ApiError extends Error {
  */
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	const headers = new Headers(init.headers);
-	if (session.token) headers.set('X-Session-Token', session.token);
+	// Catturato PRIMA della fetch: dopo l'await `session.token` potrebbe essere
+	// cambiato, e confrontare quello sbagliato è ciò che faceva cancellare
+	// sessioni valide.
+	const sentToken = session.token;
+	if (sentToken) headers.set('X-Session-Token', sentToken);
 	if (init.body) headers.set('Content-Type', 'application/json');
 
 	const response = await fetch(`/api${path}`, { ...init, headers });
 
 	if (!response.ok) {
-		/*
-		 * 401 = il server non conosce questo token: sessione cancellata, database
-		 * ripristinato, o codice incollato sbagliato. Senza questo la copia locale
-		 * resta e ogni vista ritenta all'infinito con errori non gestiti in
-		 * console. Svuotando la sessione, la guardia del layout porta al benvenuto.
-		 */
-		if (response.status === 401 && session.token) session.clear();
+		handleUnauthorized(response.status, sentToken);
 
 		let message = `Errore ${response.status}`;
 		try {
@@ -58,9 +71,13 @@ export const api = {
 	del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 
 	/** Risposta grezza, per l'export che deve diventare un file. */
-	raw: (path: string) => {
+	raw: async (path: string) => {
 		const headers = new Headers();
-		if (session.token) headers.set('X-Session-Token', session.token);
-		return fetch(`/api${path}`, { headers });
+		const sentToken = session.token;
+		if (sentToken) headers.set('X-Session-Token', sentToken);
+		const response = await fetch(`/api${path}`, { headers });
+		// Stessa regola delle altre chiamate: prima qui il 401 passava inosservato.
+		handleUnauthorized(response.status, sentToken);
+		return response;
 	}
 };

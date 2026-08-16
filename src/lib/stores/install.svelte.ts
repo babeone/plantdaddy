@@ -52,7 +52,13 @@ class InstallStore {
 		this.started = true;
 
 		this.installed = isStandalone();
-		this.dismissed = localStorage.getItem(DISMISSED_KEY) === '1';
+		try {
+			this.dismissed = localStorage.getItem(DISMISSED_KEY) === '1';
+		} catch {
+			// Storage negato: il banner ricomparirà, ma il bootstrap non si spezza
+			// a metà lasciando il service worker non registrato.
+			this.dismissed = false;
+		}
 		this.route = detectRoute();
 
 		// preventDefault() impedisce al browser di mostrare la sua mini-infobar:
