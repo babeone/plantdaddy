@@ -28,7 +28,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Header del pannello applicati QUI e non nei singoli load: così coprono
 	// anche le POST delle form action, i redirect e l'immagine del QR, cioè
 	// proprio le risposte che sarebbe più facile dimenticare.
-	if (event.route.id?.startsWith(ADMIN_INTERNAL_BASE)) adminHeaders(response.headers);
+	//
+	// Non sui 404: quando il pannello è spento, o l'IP non è in allowlist,
+	// requireAdminArea risponde 404 proprio per non confermare che il pannello
+	// esista. Aggiungerci sopra cache-control, x-robots-tag e referrer-policy lo
+	// confermerebbe lo stesso, perché un 404 qualunque non li ha.
+	if (event.route.id?.startsWith(ADMIN_INTERNAL_BASE) && response.status !== 404) {
+		adminHeaders(response.headers);
+	}
 
 	return response;
 };

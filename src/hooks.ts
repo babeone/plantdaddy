@@ -1,5 +1,5 @@
 import type { Reroute } from '@sveltejs/kit';
-import { ADMIN_INTERNAL_BASE, adminPublicBase } from '$lib/admin-path';
+import { ADMIN_INTERNAL_BASE, adminPublicBase, decodePath } from '$lib/admin-path';
 
 /**
  * Percorso configurabile del pannello admin.
@@ -14,17 +14,31 @@ import { ADMIN_INTERNAL_BASE, adminPublicBase } from '$lib/admin-path';
  * /admin — e il secondo è precisamente quello che i bot provano per primo,
  * vanificando l'unico beneficio reale del percorso configurabile.
  *
+ * I confronti si fanno sul percorso DECODIFICATO, non su quello grezzo.
+ * SvelteKit decodifica il valore restituito da reroute, quindi confrontando la
+ * stringa così com'è arriva `/%61dmin` non corrispondeva a `/admin`, scivolava
+ * fino all'ultimo return e veniva poi decodificato in `/admin`: il pannello
+ * finiva servito esattamente sull'indirizzo che queste righe dichiarano di
+ * bloccare. Verificato sul build di produzione: `/admin` dava 404 e `/%61dmin`
+ * dava 200 con la pagina di login.
+ *
  * Da ricordare: questo è un hook universale e gira anche nel browser. Non deve
  * leggere niente di privato, e infatti non lo fa.
  */
 export const reroute: Reroute = ({ url }) => {
 	const publicBase = adminPublicBase();
+	const path = decodePath(url.pathname);
 
-	if (url.pathname === publicBase || url.pathname.startsWith(`${publicBase}/`)) {
-		return ADMIN_INTERNAL_BASE + url.pathname.slice(publicBase.length);
+	if (path === publicBase || path.startsWith(`${publicBase}/`)) {
+		// Si restituisce il suffisso già decodificato. Le rotte del pannello sono
+		// stringhe fisse (/2fa, /panoramica, /utenti/<uuid>) senza caratteri da
+		// percent-encodare, quindi la seconda decodifica di SvelteKit non ha nulla
+		// da rifare; un suffisso strano non corrisponderebbe a nessuna rotta e
+		// finirebbe comunque 404.
+		return ADMIN_INTERNAL_BASE + path.slice(publicBase.length);
 	}
 
-	if (url.pathname === ADMIN_INTERNAL_BASE || url.pathname.startsWith(`${ADMIN_INTERNAL_BASE}/`)) {
+	if (path === ADMIN_INTERNAL_BASE || path.startsWith(`${ADMIN_INTERNAL_BASE}/`)) {
 		// Rotta inesistente -> 404, esattamente come qualunque altro indirizzo
 		// sbagliato. Il caso publicBase === '/admin' è già stato intercettato sopra.
 		return '/__admin_non_raggiungibile';

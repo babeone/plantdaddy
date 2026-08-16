@@ -1,0 +1,29 @@
+-- 006_indice_utenti_data — indice per l'elenco utenti del pannello
+--
+-- L'elenco ordina per data di iscrizione decrescente e ne prende una pagina alla
+-- volta. Senza indice, ogni apertura fa un seq scan su users e un sort completo
+-- prima di poter scartare tutto tranne 50 righe: un costo che cresce con
+-- l'intero database anche per la prima pagina.
+--
+-- Senza indice il piano era `Limit -> Sort -> Nested Loop`: il Sort è un nodo
+-- bloccante e sta SOPRA i join, quindi i conteggi di piante ed eventi venivano
+-- calcolati per OGNI utente prima che il limite potesse fermare qualcosa.
+--
+-- Misurato su 5.000 utenti, 15.000 piante, 75.000 eventi, prima pagina da 50:
+--
+--   senza indice, LIMIT in fondo   167 ms   85.092 buffer   (lateral su tutto)
+--   senza indice, pagina in CTE    2,8 ms      942 buffer
+--   con indice,   LIMIT in fondo   3,1 ms      855 buffer
+--   con indice,   pagina in CTE    3,2 ms      855 buffer
+--
+-- Quindi ognuna delle due correzioni da sola basta, e sono tenute entrambe per
+-- ragioni diverse: la CTE in src/lib/server/admin/queries.ts rende il
+-- comportamento indipendente dalla scelta del planner — se un domani si
+-- aggiunge un filtro o le statistiche invecchiano, l'indice potrebbe non essere
+-- più scelto — mentre questo indice evita il sort completo anche dentro la CTE.
+--
+-- `desc` esplicito: Postgres sa leggere un indice al contrario, ma dichiararlo
+-- nella direzione d'uso evita un nodo di ordinamento in più quando in futuro si
+-- aggiungessero altre colonne alla chiave.
+
+create index users_created_at_idx on users (created_at desc);

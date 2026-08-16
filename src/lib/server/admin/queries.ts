@@ -81,11 +81,30 @@ export type UserRow = {
 };
 
 /**
- * Elenco utenti. Paginato con un tetto: senza, la prima riga di una istanza
- * cresciuta trascinerebbe l'intero database dentro una pagina HTML.
+ * Elenco utenti, paginato.
+ *
+ * La pagina si ritaglia in una CTE PRIMA dei lateral, e non con un LIMIT in
+ * fondo. Con il limit finale il piano diventa `Limit -> Sort -> Nested Loop`:
+ * il Sort è un nodo bloccante e sta sopra i join, quindi i due lateral vengono
+ * eseguiti per OGNI utente del database prima che il limite possa fermare
+ * qualcosa. Paginare limita l'output; la CTE limita il LAVORO.
+ *
+ * Misurato su 5.000 utenti / 15.000 piante / 75.000 eventi, prima pagina da 50:
+ * 167 ms e 85.092 buffer con il LIMIT in fondo e senza indice, contro 2,8 ms e
+ * 942 buffer con la CTE. L'indice su users.created_at (migrazione 006) da solo
+ * risolverebbe altrettanto — i numeri completi stanno nel commento di quella
+ * migrazione — ma la CTE non dipende dal fatto che il planner scelga di usarlo,
+ * e quel presupposto salta appena si aggiunge un filtro o le statistiche
+ * invecchiano.
  */
 export async function listUsers(limit: number, offset: number): Promise<UserRow[]> {
 	return sql<UserRow[]>`
+		with pagina as (
+			select token_hash, admin_ref, created_at, notify_hour, winter_mode
+			from users
+			order by created_at desc
+			limit ${limit} offset ${offset}
+		)
 		select
 			u.admin_ref,
 			u.created_at,
@@ -95,7 +114,7 @@ export async function listUsers(limit: number, offset: number): Promise<UserRow[
 			coalesce(p.events, 0)::int as events,
 			to_char(p.last_event, 'YYYY-MM-DD') as last_event,
 			coalesce(s.n, 0)::int as push
-		from users u
+		from pagina u
 		left join lateral (
 			select
 				count(*)::int as n,
@@ -113,7 +132,6 @@ export async function listUsers(limit: number, offset: number): Promise<UserRow[
 			where user_token_hash = u.token_hash
 		) s on true
 		order by u.created_at desc
-		limit ${limit} offset ${offset}
 	`;
 }
 

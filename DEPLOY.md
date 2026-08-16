@@ -207,6 +207,50 @@ Facoltative, solo se vuoi il pannello di controllo (vedi § 10):
 | `ADMIN_SHOW_USER_TEXT` | non impostata | a `true` mostra le note scritte dagli utenti         |
 | `ADMIN_SESSION_HOURS`  | `8`           | durata massima della sessione admin                  |
 
+> **`Cross-site POST form submissions are forbidden` al login del pannello.**
+> SvelteKit confronta l'header `Origin` del browser con l'origine calcolata da
+> adapter-node e rifiuta la POST con 403 prima ancora di entrare negli hook. Le
+> API utente non se ne sono mai accorte perché mandano JSON: il controllo vale
+> solo per i content-type delle form, e quelle del pannello sono le prime del
+> progetto.
+>
+> **Prima di toccare `ORIGIN`, guarda quale `Origin` ha mandato il browser**
+> (DevTools → Network → la POST → Request Headers, oppure "Copy as cURL"). Le due
+> cause danno lo stesso messaggio ma si distinguono subito:
+>
+> **`origin: null`** — non è la configurazione, è la referrer policy della
+> pagina. La regola di Fetch che compone l'header dice che per una richiesta di
+> navigazione con metodo diverso da GET/HEAD, cioè l'invio di una form, con
+> referrer policy `no-referrer` l'`Origin` viene serializzato come `null`, anche
+> verso la stessa origine. È successo davvero: `adminHeaders()` in
+> `src/lib/server/admin/guard.ts` mandava `Referrer-Policy: no-referrer`. Ora
+> manda `same-origin`, che protegge lo stesso — verso l'esterno il Referer non
+> parte affatto — senza azzerare `Origin`. Se qualcuno rimette `no-referrer`, il
+> login smette di funzionare.
+>
+> **`origin: https://qualcos-altro`** — allora sì, è `ORIGIN`. Verificato in
+> locale su una build di produzione, con `Host` e `X-Forwarded-Proto` di Traefik
+> simulati:
+>
+> | `ORIGIN`                         | Esito                                         |
+> | -------------------------------- | --------------------------------------------- |
+> | assente                          | passa (ripiego su `X-Forwarded-Proto`/`Host`) |
+> | `https://<HOST>`                 | passa                                         |
+> | `https://<HOST>/` (slash finale) | passa, lo slash viene normalizzato            |
+> | `http://<HOST>`                  | **403**                                       |
+> | `https://<ALTRO-HOST>`           | **403**                                       |
+> | `http://127.0.0.1:3000`          | **403**                                       |
+>
+> `ORIGIN` deve essere identica a quello che si legge nella barra degli
+> indirizzi: stesso schema, stesso host, niente percorso. Attenzione se raggiungi
+> l'app sia con un nome `sslip.io` sia col dominio vero — solo uno dei due
+> combacia.
+>
+> **Nota di metodo: con curl questo bug è invisibile.** L'header `Origin` lo si
+> scrive a mano e nessuna referrer policy lo tocca, quindi una prova a riga di
+> comando passa mentre il browser fallisce. Le form vanno provate con un browser
+> vero.
+
 > **Se un import fallisce con `{"message":"Body JSON non valido"}`, guarda qui
 > prima di cercare bug nel JSON.** Quando il corpo supera `BODY_SIZE_LIMIT`
 > adapter-node interrompe lo stream, e quello che l'app vede è un JSON troncato:
