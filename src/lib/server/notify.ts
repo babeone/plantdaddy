@@ -42,7 +42,12 @@ export async function findDuePlants(hour: number): Promise<DuePlant[]> {
 			(ps.next_fertilizing is not null and ps.next_fertilizing <= ${today()}::date) as fertilize_due
 		from plant_status ps
 		join users u on u.token_hash = ps.user_token_hash
-		where u.notify_hour = ${hour}
+		-- Una pianta archiviata o morta non va annaffiata: senza questo filtro
+		-- l'app continuerebbe a chiederlo per una pianta che l'utente ha appena
+		-- dichiarato secca. Fino alla migrazione 008 lo stato non esisteva, quindi
+		-- tutte le righe sono 'active' e il comportamento non cambia per nessuno.
+		where ps.state = 'active'
+			and u.notify_hour = ${hour}
 			and (
 				ps.next_watering is null
 				or ps.next_watering <= ${today()}::date

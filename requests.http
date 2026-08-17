@@ -353,3 +353,99 @@ Content-Type: application/json
 #
 # { "name": "Troppo loquace", "notes": "xxxx…(2001 caratteri)", "watering_interval_days": 7 }
 
+
+# ---------------------------------------------------------------------------
+# FOTO
+# Il corpo è l'immagine GREZZA, non multipart: c'è un solo file e nessun altro
+# campo. Il formato lo decide il server dai magic bytes, non dal Content-Type.
+# Senza le variabili S3_* configurate tutte queste rispondono 503.
+# ---------------------------------------------------------------------------
+
+### Avatar: sostituisce quello esistente e cancella il vecchio file. Non consuma slot.
+POST {{host}}/api/plants/{{plantId}}/avatar
+X-Session-Token: {{token}}
+Content-Type: image/jpeg
+
+< ./foto-di-prova.jpg
+
+### Avatar servito dal proxy (512 px). La CSP resta img-src 'self'.
+GET {{host}}/api/plants/{{plantId}}/avatar
+X-Session-Token: {{token}}
+
+### Thumbnail dell'avatar (128 px): quella che usano card e liste
+GET {{host}}/api/plants/{{plantId}}/avatar/thumb
+X-Session-Token: {{token}}
+
+### Torna all'emoji e rimuove la foto dall'archivio
+DELETE {{host}}/api/plants/{{plantId}}/avatar
+X-Session-Token: {{token}}
+
+### Galleria + stato degli slot: maturati, usati, liberi, data del prossimo.
+### NON tocca l'archivio: legge solo Postgres, quindi risponde anche con MinIO giù.
+GET {{host}}/api/plants/{{plantId}}/photos
+X-Session-Token: {{token}}
+
+### Aggiunge una foto al diario -> 201, oppure 409 se gli slot sono esauriti
+POST {{host}}/api/plants/{{plantId}}/photos
+X-Session-Token: {{token}}
+Content-Type: image/jpeg
+
+< ./foto-di-prova.jpg
+
+### Foto del diario, piena e thumbnail
+GET {{host}}/api/photos/{{photoId}}
+X-Session-Token: {{token}}
+
+GET {{host}}/api/photos/{{photoId}}/thumb
+X-Session-Token: {{token}}
+
+### Cancella: riga E oggetti. Lo slot torna disponibile.
+DELETE {{host}}/api/photos/{{photoId}}
+X-Session-Token: {{token}}
+
+### Foto di un'altra sessione -> 404, non 403: non rivela cosa esiste
+GET {{host}}/api/photos/11111111-2222-3333-4444-555555555555/thumb
+X-Session-Token: {{token}}
+
+### Archivia la pianta: nessun promemoria, storico e foto conservati
+PATCH {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "state": "archived" }
+
+### Promemoria foto per questa sola pianta
+PATCH {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "photo_reminders": false }
+
+### Emoji fuori whitelist -> 400 (la lista è in src/lib/emoji.ts)
+PATCH {{host}}/api/plants/{{plantId}}
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "emoji": "🚀" }
+
+### Interruttore GLOBALE dei promemoria foto
+PATCH {{host}}/api/settings
+X-Session-Token: {{token}}
+Content-Type: application/json
+
+{ "photo_reminders": false }
+
+# ---------------------------------------------------------------------------
+# CRON DELLE FOTO — l'autorizzazione viene prima di qualsiasi query
+# ---------------------------------------------------------------------------
+
+### Promemoria trimestrali. ?hour=N forza l'ora per provarli a mano.
+GET {{host}}/api/cron/photo-reminders
+Authorization: Bearer {{cronSecret}}
+
+### Pulizia degli orfani. ?dry-run dice cosa farebbe senza cancellare.
+GET {{host}}/api/cron/photo-cleanup?dry-run
+Authorization: Bearer {{cronSecret}}
+
+### Senza segreto -> 401, prima di leggere il database
+GET {{host}}/api/cron/photo-cleanup

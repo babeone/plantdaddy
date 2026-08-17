@@ -112,6 +112,28 @@ class SessionStore {
 	}
 
 	/**
+	 * Ottiene il cookie di sola lettura per le immagini.
+	 *
+	 * Serve perché un tag <img> non può inviare l'header X-Session-Token, e senza
+	 * questo le foto restano rotte nel browser pur funzionando con curl. Il cookie
+	 * è limitato a /api/photos, HttpOnly e SameSite=Strict: vedi
+	 * $lib/server/photos/cookie per il ragionamento completo.
+	 *
+	 * Non rilancia: se fallisce le foto mostrano il segnaposto e il resto dell'app
+	 * continua a funzionare, che è meglio di un errore all'avvio.
+	 */
+	async enablePhotos(): Promise<void> {
+		try {
+			await fetch('/api/photos/session', {
+				method: 'POST',
+				headers: this.token ? { 'X-Session-Token': this.token } : {}
+			});
+		} catch {
+			// rete assente all'avvio: si riproverà al prossimo caricamento
+		}
+	}
+
+	/**
 	 * Cancella davvero la sessione dal dispositivo.
 	 *
 	 * Da invocare SOLO su gesto esplicito dell'utente (ripristino con un altro
@@ -127,6 +149,8 @@ class SessionStore {
 			// storage negato: resta il cookie, che cancelliamo qui sotto
 		}
 		writeCookie(COOKIE_NAME, '', -1);
+		// Il cookie delle immagini è HttpOnly: solo il server può cancellarlo.
+		void fetch('/api/photos/session', { method: 'DELETE' }).catch(() => {});
 	}
 
 	/**

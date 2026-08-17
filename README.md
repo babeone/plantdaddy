@@ -34,6 +34,29 @@ ready for Dokploy.
 - **Per-plant notes**: a free-text field on the plant itself (soil, exposure,
   "move it away from the radiator in winter"), separate from the short note you
   can attach to a single watering.
+- **Plant photos**, in two independent kinds. An **avatar** — one per plant,
+  either a curated emoji or a real photo — and a **growth diary**: one gallery
+  slot at creation, then one more every three calendar months
+  (`1 + floor(months / 3)`). Slots are concurrent storage, not lifetime uploads:
+  delete a photo and the slot comes back. Deleting a photo really removes it from
+  object storage, so the quota is not fiction.
+- **Photos are processed server-side, never trusted from the client**: format
+  detected from magic bytes, EXIF auto-rotate applied and then all metadata
+  stripped — smartphone photos carry the GPS coordinates of your home — resized to
+  1600px and re-encoded as WebP q78, plus a 400px thumbnail. Measured on a
+  deliberately hard 12 MP image: 378 KB and 38 KB, 111 MB peak RSS, one image at a
+  time behind a single-slot semaphore.
+- **Object storage is swappable**: only relative keys go in the database, never
+  absolute URLs, enforced by a CHECK. Moving from self-hosted MinIO to Cloudflare
+  R2 is an env-var change plus a file copy — no code, no UPDATE on Postgres.
+  Images are served through the app, so the CSP stays `img-src 'self'` and the
+  storage is never exposed to the internet.
+- **Quarterly photo reminder**: when a plant matures a new diary slot, one
+  aggregated push per user per day — five plants maturing together is one
+  notification, not five — with a deep link straight to that plant. Idempotent:
+  re-running the job sends nothing twice.
+- **Plant lifecycle**: active, archived, or dead. A dead plant keeps its history
+  and photos and stops generating reminders, which deleting it would not.
 - **Winter mode**: a manual global flag that multiplies every interval by a
   configurable factor (default 1.5), with a permanent indicator so you don't
   forget it's on in May.

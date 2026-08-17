@@ -1,0 +1,122 @@
+# MinIO per PlantDaddy — da incollare in Dokploy come servizio "Compose".
+#
+# Le variabili con ${...} si impostano nella scheda Environment del servizio
+# Compose in Dokploy, NON qui dentro: questo file finisce su GitHub.
+#
+# COSA FA QUESTO FILE, in breve:
+#  - un MinIO con limiti espliciti di RAM e CPU, così non può affamare Postgres
+#  - un volume nominato per i dati, che sopravvive a redeploy e aggiornamenti
+#  - un container di inizializzazione che crea il bucket PRIVATO e una coppia di
+#    chiavi applicative limitate a quel solo bucket, invece di usare le root
+#  - nessuna porta pubblicata sull'host: l'app raggiunge MinIO per nome interno
+#
+# Dopo il primo avvio l'init si spegne da solo (restart: "no") e non riparte:
+# è idempotente, quindi rilanciarlo non rompe niente.
+
+services:
+  minio:
+    # Tag fissato e non :latest — un aggiornamento involontario del server di
+    # storage è l'ultima cosa che si vuole scoprire da un redeploy. Per aggiornare
+    # si cambia questa riga, si legge il changelog e si fa il deploy consciamente.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # La console non serve pubblicata: si raggiunge dal tunnel SSH (vedi
+      # DEPLOY.md § 11.6). Questa riga la fa comunque rispondere sulla 9001
+      # interna.
+      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    volumes:
+      # Volume NOMINATO e non bind mount su un percorso qualsiasi: Docker lo
+      # gestisce sotto /var/lib/docker/volumes/, sopravvive ai redeploy e si
+      # ritrova con `docker volume ls`. Un bind mount su una cartella sparsa nel
+      # filesystem è la strada per perdere i dati durante una pulizia.
+      - plantdaddy-minio-data:/data
+    # NESSUN ports: — non serve, e pubblicare la 9000 metterebbe l'archivio su
+    # internet. L'app lo raggiunge come http://plantdaddy-minio:9000 sulla rete
+    # interna di Docker.
+    deploy:
+      resources:
+        limits:
+          # 512 MB è largo per il carico di questa app (foto da 400 KB, poche
+          # richieste al minuto) e lascia respirare Postgres su una macchina da
+          # 4 GB. MinIO usa memoria per la cache: con meno funziona comunque, con
+          # più non va più veloce su questi volumi.
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    healthcheck:
+      # L'endpoint di salute di MinIO non richiede credenziali.
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Inizializzazione: bucket privato + utente applicativo con permessi minimi.
+  # Gira una volta e si spegne.
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: 'no'
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-plantdaddy}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        mc alias set locale http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+
+        # --ignore-existing: l'init deve poter girare a ogni deploy senza fallire.
+        mc mb --ignore-existing locale/"$$S3_BUCKET"
+
+        # PRIVATO, esplicitamente. È già il default di MinIO, ma dichiararlo
+        # significa che un cambio manuale dalla console viene riportato indietro
+        # al prossimo deploy invece di restare pubblico per mesi senza che nessuno
+        # se ne accorga.
+        mc anonymous set none locale/"$$S3_BUCKET"
+
+        # Policy dedicata: SOLO questo bucket, SOLO le operazioni che l'app usa.
+        # Niente DeleteBucket, niente accesso agli altri bucket, niente
+        # amministrazione. Se le chiavi dell'app finissero in mano a qualcuno, il
+        # danno massimo è su queste foto e non sull'intero server di storage.
+        cat > /tmp/policy.json <<POLICY
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+              "Resource": ["arn:aws:s3:::$$S3_BUCKET"]
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+              "Resource": ["arn:aws:s3:::$$S3_BUCKET/*"]
+            }
+          ]
+        }
+        POLICY
+        mc admin policy create locale plantdaddy-app /tmp/policy.json || true
+
+        # L'utente potrebbe già esistere da un deploy precedente: in quel caso si
+        # riallinea la password a quella nelle variabili, così ruotarla è solo un
+        # cambio di env + redeploy.
+        mc admin user add locale "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" 2>/dev/null \
+          || mc admin user svcacct set locale "$$S3_ACCESS_KEY" --secret-key "$$S3_SECRET_KEY" 2>/dev/null \
+          || true
+        mc admin policy attach locale plantdaddy-app --user "$$S3_ACCESS_KEY" || true
+
+        echo "MinIO pronto: bucket $$S3_BUCKET privato, utente $$S3_ACCESS_KEY con permessi limitati."
+
+volumes:
+  plantdaddy-minio-data:

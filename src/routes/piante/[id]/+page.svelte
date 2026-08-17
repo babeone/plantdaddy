@@ -6,6 +6,8 @@
 	import CareButton from '$lib/components/CareButton.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import PastEventSheet from '$lib/components/PastEventSheet.svelte';
+	import PhotoGallery from '$lib/components/PhotoGallery.svelte';
+	import PlantAvatar from '$lib/components/PlantAvatar.svelte';
 	import PlantFormSheet from '$lib/components/PlantFormSheet.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import Timeline from '$lib/components/Timeline.svelte';
@@ -15,7 +17,7 @@
 	import { dueTypes, plants } from '$lib/stores/plants.svelte';
 	import { session } from '$lib/stores/session.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import type { CareEvent, CareType } from '$lib/types';
+	import type { CareEvent, CareType, PlantLifecycle } from '$lib/types';
 
 	const plantId = $derived(page.params.id ?? '');
 	const plant = $derived(plants.byId(plantId));
@@ -106,6 +108,21 @@
 		}
 	}
 
+	async function cambiaStato(state: PlantLifecycle) {
+		try {
+			await plants.setState(plantId, state);
+			toasts.show(
+				state === 'active'
+					? 'Pianta riattivata'
+					: state === 'archived'
+						? 'Pianta archiviata'
+						: 'Segnata come morta'
+			);
+		} catch (err) {
+			toasts.error(err instanceof Error ? err.message : 'Modifica non riuscita');
+		}
+	}
+
 	async function confirmDeletePlant() {
 		deletingPlant = false;
 		try {
@@ -154,6 +171,16 @@
 			<div class="empty"><p>Pianta non trovata.</p></div>
 		{/if}
 	{:else}
+		{#if plant.state !== 'active'}
+			<div class="winter-strip stato">
+				{plant.state === 'archived' ? '📦' : '🥀'}
+				<span>
+					{plant.state === 'archived' ? 'Pianta archiviata' : 'Pianta segnata come morta'}: nessun
+					promemoria, storico e foto conservati.
+				</span>
+			</div>
+		{/if}
+
 		{#if plants.settings.winter_mode}
 			<div class="winter-strip">
 				❄️ <span>Inverno attivo: intervalli ×{plants.settings.winter_multiplier}</span>
@@ -162,7 +189,7 @@
 
 		<article class="card">
 			<div class="card-head">
-				<span class="avatar big">{plant.emoji ?? '🪴'}</span>
+				<PlantAvatar {plant} size={56} />
 				<span class="card-title">
 					<span class="name">{plant.name}</span>
 					<span class="room">{plant.location ?? '—'}</span>
@@ -212,6 +239,8 @@
 			     tiene gli a capo che ha scritto senza permettere altro. -->
 			<div class="card"><p class="notes">{plant.notes}</p></div>
 		{/if}
+
+		<PhotoGallery {plant} />
 
 		<div class="group-title">Ritmo</div>
 		<div class="stat-grid">
@@ -290,6 +319,54 @@
 			</p>
 		</div>
 
+		<div class="group-title">Stato e promemoria</div>
+		<div class="group">
+			<div class="item">
+				<div class="t">
+					<b>Ciclo di vita</b>
+					<small>
+						Archiviata o morta non genera più promemoria, ma conserva foto e storico — al contrario
+						di eliminarla.
+					</small>
+				</div>
+			</div>
+			<div class="item">
+				<div class="seg stati">
+					{#each [['active', '🌿 Attiva'], ['archived', '📦 Archiviata'], ['dead', '🥀 Morta']] as [valore, etichetta] (valore)}
+						<button
+							type="button"
+							aria-pressed={plant.state === valore}
+							disabled={plants.pending.has(plantId)}
+							onclick={() => cambiaStato(valore as PlantLifecycle)}
+						>
+							{etichetta}
+						</button>
+					{/each}
+				</div>
+			</div>
+			<div class="item">
+				<div class="t">
+					<b>📷 Promemoria foto</b>
+					<small>Un avviso quando matura un nuovo slot del diario, ogni tre mesi</small>
+				</div>
+				<button
+					class="switch"
+					role="switch"
+					aria-checked={plant.photo_reminders}
+					aria-label="Promemoria foto per questa pianta"
+					onclick={async () => {
+						try {
+							await plants.setPhotoReminders(plantId, !plant.photo_reminders);
+						} catch (err) {
+							toasts.error(err instanceof Error ? err.message : 'Modifica non riuscita');
+						}
+					}}
+				>
+					<i></i>
+				</button>
+			</div>
+		</div>
+
 		<button class="btn btn-secondary btn-danger" onclick={() => (deletingPlant = true)}>
 			Elimina pianta
 		</button>
@@ -351,11 +428,6 @@
 		align-items: center;
 		gap: 12px;
 	}
-	.avatar.big {
-		width: 56px;
-		height: 56px;
-		font-size: 30px;
-	}
 	.card-title .name {
 		font-size: 19px;
 	}
@@ -385,5 +457,14 @@
 	}
 	.winter-strip span {
 		flex: 1;
+	}
+	.winter-strip.stato {
+		background: var(--surface-2);
+		color: var(--text-dim);
+	}
+	/* I tre stati stanno in colonna su 390px: "Archiviata" affiancata alle altre
+	   due andava a capo dentro il bottone. */
+	.seg.stati {
+		width: 100%;
 	}
 </style>

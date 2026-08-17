@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
+import { emojiAmmessa } from '$lib/emoji';
 import { isRealDate } from './date';
 
 /** Quote: allineate ai CHECK e al trigger di rotazione in db/migrations/001_init.sql. */
@@ -16,7 +17,14 @@ const isoDate = z
 // invece di un 500 con un errore Postgres.
 const plantFields = {
 	name: z.string().trim().min(1, 'nome obbligatorio').max(60),
-	emoji: z.string().max(8).nullish(),
+	// L'emoji è validata contro la whitelist di $lib/emoji, non solo per lunghezza:
+	// il campo finisce nel testo della pagina e accettare stringhe arbitrarie di 8
+	// caratteri non ha nessun motivo di esistere. La lista è la stessa che alimenta
+	// il picker, quindi il client non può offrire qualcosa che il server rifiuta.
+	//
+	// Vale per le scritture nuove: i valori già presenti in produzione non vengono
+	// riscritti da nessuna migrazione (vedi 008).
+	emoji: z.string().max(8).refine(emojiAmmessa, 'emoji non ammessa').nullish(),
 	location: z.string().trim().max(60).nullish(),
 	// La nota della PIANTA (scheda), da non confondere con careCreateSchema.note
 	// che è la nota del singolo evento e sta a 280.
@@ -27,6 +35,8 @@ const plantFields = {
 
 export const plantCreateSchema = z.object(plantFields);
 
+export const plantStateSchema = z.enum(['active', 'archived', 'dead']);
+
 export const plantPatchSchema = z
 	.object({
 		name: plantFields.name.optional(),
@@ -34,9 +44,27 @@ export const plantPatchSchema = z
 		location: plantFields.location,
 		notes: plantFields.notes,
 		watering_interval_days: plantFields.watering_interval_days.optional(),
-		fertilizing_interval_days: plantFields.fertilizing_interval_days
+		fertilizing_interval_days: plantFields.fertilizing_interval_days,
+		state: plantStateSchema.optional(),
+		/** Promemoria foto per questa singola pianta. Il globale sta in /api/settings. */
+		photo_reminders: z.boolean().optional()
 	})
 	.refine((patch) => Object.keys(patch).length > 0, 'nessun campo da aggiornare');
+
+/**
+ * Emoji tollerante, SOLO per l'import.
+ *
+ * L'import legge file che l'utente ha esportato in passato, quando il campo emoji
+ * era libero. Applicare la whitelist come nel create farebbe fallire l'intero
+ * backup per un'emoji, cioè renderebbe irrecuperabili i dati di chi ha usato
+ * l'app prima di questa versione. Un valore fuori lista diventa null: la pianta
+ * torna all'emoji di default e tutto il resto si salva.
+ */
+const emojiImport = z
+	.string()
+	.max(8)
+	.nullish()
+	.transform((valore) => (valore && emojiAmmessa(valore) ? valore : null));
 
 export const careTypeSchema = z.enum(['water', 'fertilize']);
 
@@ -56,7 +84,9 @@ export const settingsSchema = z
 	.object({
 		notify_hour: z.number().int().min(0).max(23).optional(),
 		winter_mode: z.boolean().optional(),
-		winter_multiplier: z.number().min(1).max(3).optional()
+		winter_multiplier: z.number().min(1).max(3).optional(),
+		/** Interruttore GLOBALE dei promemoria foto. Il per-pianta sta in plantPatchSchema. */
+		photo_reminders: z.boolean().optional()
 	})
 	.refine((patch) => Object.keys(patch).length > 0, 'nessun campo da aggiornare');
 
@@ -119,6 +149,8 @@ export const importSchema = z.object({
 			z.object({
 				id: z.string().max(64).nullish(),
 				...plantFields,
+				// Sovrascrive quella severa di plantFields: vedi emojiImport.
+				emoji: emojiImport,
 				water_snoozed_until: isoDate.nullish(),
 				fertilize_snoozed_until: isoDate.nullish()
 			})

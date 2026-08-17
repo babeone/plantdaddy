@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { api } from '$lib/api';
 import { daysFromToday, today } from '$lib/date';
-import type { CareType, Plant, PlantInput, PlantState, Settings } from '$lib/types';
+import type { CareType, Plant, PlantInput, PlantLifecycle, PlantState, Settings } from '$lib/types';
 
 /** true se quel tipo di cura è stato rimandato a una data futura. */
 function isSnoozed(plant: Plant, type: CareType): boolean {
@@ -82,7 +82,12 @@ export function dueTypes(plant: Plant): CareType[] {
  */
 class PlantsStore {
 	plants = $state<Plant[]>([]);
-	settings = $state<Settings>({ notify_hour: 8, winter_mode: false, winter_multiplier: 1.5 });
+	settings = $state<Settings>({
+		notify_hour: 8,
+		winter_mode: false,
+		winter_multiplier: 1.5,
+		photo_reminders: true
+	});
 	loading = $state(false);
 	loaded = $state(false);
 	error = $state<string | null>(null);
@@ -223,6 +228,39 @@ class PlantsStore {
 	async remove(id: string): Promise<void> {
 		await api.del(`/plants/${id}`);
 		this.plants = this.plants.filter((plant) => plant.id !== id);
+	}
+
+	/**
+	 * Carica la foto avatar e allinea la pianta in memoria.
+	 *
+	 * Nessun aggiornamento ottimistico: l'immagine la produce il server (resize e
+	 * ricompressione), quindi finché non risponde non c'è niente di vero da
+	 * mostrare. Mostrare il file locale intanto sarebbe un'anteprima con
+	 * dimensioni e resa diverse da quelle finali.
+	 */
+	async setAvatarPhoto(id: string, file: File): Promise<void> {
+		await api.upload(`/plants/${id}/avatar`, file);
+		const plant = this.byId(id);
+		if (plant) this.replace({ ...plant, avatar_type: 'photo' });
+	}
+
+	async removeAvatarPhoto(id: string): Promise<void> {
+		await api.del(`/plants/${id}/avatar`);
+		const plant = this.byId(id);
+		if (plant) this.replace({ ...plant, avatar_type: 'emoji' });
+	}
+
+	/** Archivia, segna come morta o riattiva. Lo storico resta in ogni caso. */
+	async setState(id: string, state: PlantLifecycle): Promise<Plant> {
+		const data = await api.patch<{ plant: Plant }>(`/plants/${id}`, { state });
+		this.replace(data.plant);
+		return data.plant;
+	}
+
+	/** Promemoria foto per questa singola pianta. Il globale sta nelle impostazioni. */
+	async setPhotoReminders(id: string, on: boolean): Promise<void> {
+		const data = await api.patch<{ plant: Plant }>(`/plants/${id}`, { photo_reminders: on });
+		this.replace(data.plant);
 	}
 
 	async loadSettings(): Promise<void> {

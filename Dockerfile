@@ -38,10 +38,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
-# Il default di adapter-node è 512K e rifiuterebbe l'import di un backup vero:
-# 100 piante x 300 eventi sono circa 30.000 righe, cioè ~4 MB di JSON. 8M lascia
-# margine senza permettere a chiunque di far streammare un corpo enorme.
-ENV BODY_SIZE_LIMIT=8M
+# Il default di adapter-node è 512K e rifiuterebbe due cose: l'import di un
+# backup vero (100 piante x 300 eventi sono ~30.000 righe, circa 4 MB di JSON) e
+# l'upload di una foto, che arriva fino a 15 MB.
+#
+# È GLOBALE per adapter-node, quindi alza anche il tetto di /api/import. Il limite
+# per-rotta lo impone il codice: le API foto controllano content-length e contano
+# i byte durante la lettura (src/lib/server/photos/gate.ts), così un corpo enorme
+# non arriva mai in memoria.
+ENV BODY_SIZE_LIMIT=20M
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build

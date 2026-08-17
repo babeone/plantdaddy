@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import BottomSheet from './BottomSheet.svelte';
+	import EmojiPicker from './EmojiPicker.svelte';
+	import { EMOJI_DEFAULT } from '$lib/emoji';
 	import type { Plant, PlantInput } from '$lib/types';
 
 	let {
@@ -9,7 +11,12 @@
 		onclose
 	}: {
 		plant?: Plant | null;
-		onsave: (input: PlantInput) => Promise<void>;
+		/**
+		 * `avatar` è il file scelto dall'utente, se ha preferito una foto all'emoji.
+		 * Non si carica da qui: per una pianta nuova l'id non esiste ancora, quindi
+		 * il caricamento avviene DOPO la creazione ed è il chiamante a orchestrarlo.
+		 */
+		onsave: (input: PlantInput, avatar?: File | null) => Promise<void>;
 		onclose: () => void;
 	} = $props();
 
@@ -18,7 +25,7 @@
 	// reattiva in posizione non reattiva — qui è voluto, il foglio viene
 	// rimontato da zero ogni volta che si apre.
 	let name = $state(untrack(() => plant?.name ?? ''));
-	let emoji = $state(untrack(() => plant?.emoji ?? '🪴'));
+	let emoji = $state(untrack(() => plant?.emoji ?? EMOJI_DEFAULT));
 	let location = $state(untrack(() => plant?.location ?? ''));
 	let notes = $state(untrack(() => plant?.notes ?? ''));
 	let watering = $state(untrack(() => plant?.watering_interval_days ?? 7));
@@ -27,8 +34,30 @@
 	);
 	let fertilizing = $state(untrack(() => plant?.fertilizing_interval_days ?? 30));
 
+	/** 'emoji' o 'photo': quale immagine identifica la pianta. */
+	let avatarMode = $state(untrack(() => plant?.avatar_type ?? 'emoji'));
+	let avatarFile = $state<File | null>(null);
+	let avatarPreview = $state<string | null>(null);
+
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+
+	function scegliFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0] ?? null;
+		if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+		avatarFile = file;
+		// blob: e non un data URL: la CSP ha img-src 'self' blob: e non ammette
+		// data:. È anche più economico, non serializza il file in base64.
+		avatarPreview = file ? URL.createObjectURL(file) : null;
+		if (file) avatarMode = 'photo';
+	}
+
+	// L'URL del blob va revocato, altrimenti il file resta in memoria finché la
+	// scheda è aperta.
+	$effect(() => () => {
+		if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+	});
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
@@ -39,14 +68,17 @@
 		saving = true;
 		error = null;
 		try {
-			await onsave({
-				name: name.trim(),
-				emoji: emoji.trim() || null,
-				location: location.trim() || null,
-				notes: notes.trim() || null,
-				watering_interval_days: Number(watering),
-				fertilizing_interval_days: fertilizeOn ? Number(fertilizing) : null
-			});
+			await onsave(
+				{
+					name: name.trim(),
+					emoji: emoji.trim() || null,
+					location: location.trim() || null,
+					notes: notes.trim() || null,
+					watering_interval_days: Number(watering),
+					fertilizing_interval_days: fertilizeOn ? Number(fertilizing) : null
+				},
+				avatarMode === 'photo' ? avatarFile : null
+			);
 			onclose();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Salvataggio non riuscito';
@@ -68,16 +100,61 @@
 		</div>
 
 		<div class="field">
-			<div class="row">
-				<div>
-					<label for="pf-emoji">Emoji</label>
-					<input id="pf-emoji" bind:value={emoji} maxlength="8" />
-				</div>
-				<div>
-					<label for="pf-room">Stanza</label>
-					<input id="pf-room" bind:value={location} maxlength="60" placeholder="opzionale" />
-				</div>
+			<span class="label-like">Immagine</span>
+			<div class="seg">
+				<button
+					type="button"
+					aria-pressed={avatarMode === 'emoji'}
+					onclick={() => (avatarMode = 'emoji')}
+				>
+					{emoji} Emoji
+				</button>
+				<button
+					type="button"
+					aria-pressed={avatarMode === 'photo'}
+					onclick={() => (avatarMode = 'photo')}
+				>
+					📷 Foto
+				</button>
 			</div>
+
+			{#if avatarMode === 'emoji'}
+				<EmojiPicker value={emoji} onpick={(scelta) => (emoji = scelta)} />
+			{:else}
+				<div class="foto-riga">
+					{#if avatarPreview}
+						<img class="anteprima" src={avatarPreview} alt="Anteprima della foto scelta" />
+					{:else if plant?.avatar_type === 'photo'}
+						<img
+							class="anteprima"
+							src="/api/photos/avatar/{plant.id}/thumb"
+							alt="Foto attuale della pianta"
+						/>
+					{:else}
+						<span class="anteprima vuota">🌿</span>
+					{/if}
+					<div class="foto-testo">
+						<!-- accept="image/*" e non un elenco di estensioni: su iOS è ciò che
+						     fa convertire l'HEIC in JPEG durante il caricamento. -->
+						<label class="btn btn-secondary" for="pf-avatar">
+							{avatarFile || plant?.avatar_type === 'photo' ? 'Cambia foto' : 'Scegli una foto'}
+						</label>
+						<input
+							id="pf-avatar"
+							class="file-nascosto"
+							type="file"
+							accept="image/*"
+							onchange={scegliFile}
+						/>
+						<small>Massimo 15 MB. Le foto vengono rimpicciolite e i dati GPS rimossi.</small>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<div class="field">
+			<label for="pf-room">Stanza</label>
+			<input id="pf-room" bind:value={location} maxlength="60" placeholder="opzionale" />
 		</div>
 
 		<div class="field">
@@ -143,13 +220,58 @@
 	input[disabled] {
 		opacity: 0.45;
 	}
-	.error {
-		color: var(--late);
-		font-size: 13px;
-		margin-bottom: 10px;
-	}
 	.cancel {
 		margin-top: 8px;
 		border: 0;
+	}
+	/* Stessa resa di .field label, ma su uno span: non etichetta un singolo
+	   controllo, quindi un <label> sarebbe scorretto per i lettori di schermo. */
+	.label-like {
+		display: block;
+		font-size: 13px;
+		font-weight: 650;
+		color: var(--text-dim);
+		margin-bottom: 6px;
+	}
+	.seg {
+		margin-bottom: 8px;
+	}
+	.foto-riga {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.anteprima {
+		width: 68px;
+		height: 68px;
+		border-radius: var(--r-md);
+		object-fit: cover;
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+		flex-shrink: 0;
+	}
+	.anteprima.vuota {
+		display: grid;
+		place-items: center;
+		font-size: 30px;
+	}
+	.foto-testo {
+		flex: 1;
+		min-width: 0;
+	}
+	.foto-testo small {
+		display: block;
+		margin-top: 6px;
+		font-size: 11.5px;
+		color: var(--text-mute);
+	}
+	/* L'input file nativo non si può stilare: si nasconde e si usa la <label>
+	   come bottone, che apre il selettore comunque. */
+	.file-nascosto {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		pointer-events: none;
 	}
 </style>

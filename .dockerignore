@@ -28,7 +28,7 @@ README.md
 DEPLOY.md
 mockup.html
 requests.http
-db/verify.sql
+db/verify*.sql
 
 # --- log e temporanei ---
 *.log

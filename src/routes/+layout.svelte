@@ -75,6 +75,9 @@
 		if (session.verified && !plants.loaded && !plants.loading) {
 			void plants.load();
 			void plants.loadSettings();
+			// Cookie di sola lettura per le immagini: un <img> non può mandare
+			// l'header, quindi senza questo le foto restano rotte.
+			void session.enablePhotos();
 		}
 	});
 

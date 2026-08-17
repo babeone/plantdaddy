@@ -7,6 +7,7 @@ type Settings = {
 	notify_hour: number;
 	winter_mode: boolean;
 	winter_multiplier: number;
+	photo_reminders: boolean;
 };
 
 /**
@@ -18,7 +19,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const tokenHash = await requireUser(locals);
 
 	const [settings] = await sql<Settings[]>`
-		select notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier
+		select notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier,
+			photo_reminders
 		from users
 		where token_hash = ${tokenHash}
 	`;
@@ -34,13 +36,15 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
 	if (body.notify_hour !== undefined) patch.notify_hour = body.notify_hour;
 	if (body.winter_mode !== undefined) patch.winter_mode = body.winter_mode;
 	if (body.winter_multiplier !== undefined) patch.winter_multiplier = body.winter_multiplier;
+	if (body.photo_reminders !== undefined) patch.photo_reminders = body.photo_reminders;
 
 	// winter_multiplier è NUMERIC: senza il cast postgres lo restituirebbe come
 	// stringa e il client dovrebbe ricordarsi di convertirlo.
 	const [settings] = await sql<Settings[]>`
 		update users set ${sql(patch)}
 		where token_hash = ${tokenHash}
-		returning notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier
+		returning notify_hour, winter_mode, winter_multiplier::float8 as winter_multiplier,
+			photo_reminders
 	`;
 
 	return json({ settings });

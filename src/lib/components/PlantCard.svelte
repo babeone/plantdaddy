@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import CareButton from './CareButton.svelte';
+	import PlantAvatar from './PlantAvatar.svelte';
 	import StatusPill from './StatusPill.svelte';
 	import { dueTypes, plants } from '$lib/stores/plants.svelte';
 	import { formatRelative } from '$lib/date';
@@ -38,7 +39,7 @@
 
 <article class="card">
 	<a class="card-head" href={resolve('/piante/[id]', { id: plant.id })}>
-		<span class="avatar">{plant.emoji ?? '🪴'}</span>
+		<PlantAvatar {plant} size={44} />
 		<span class="card-title">
 			<span class="name">{plant.name}</span>
 			<span class="room">{plant.location ?? '—'}</span>

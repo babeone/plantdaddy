@@ -61,8 +61,19 @@
 {#if creating}
 	<PlantFormSheet
 		onclose={() => (creating = false)}
-		onsave={async (input) => {
-			await plants.create(input);
+		onsave={async (input, avatar) => {
+			const creata = await plants.create(input);
+			// La foto si carica DOPO: l'endpoint dell'avatar ha bisogno dell'id, che
+			// prima della create non esiste. Se il caricamento fallisce la pianta
+			// resta creata con la sua emoji, e si riprova dal dettaglio: preferibile
+			// a perdere tutto il resto del form.
+			if (avatar) {
+				try {
+					await plants.setAvatarPhoto(creata.id, avatar);
+				} catch (err) {
+					toasts.error(err instanceof Error ? err.message : 'Foto non caricata');
+				}
+			}
 			toasts.show('Pianta aggiunta');
 		}}
 	/>

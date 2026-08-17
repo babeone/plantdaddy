@@ -7,6 +7,11 @@
 --
 --   psql "$DATABASE_URL" -f db/verify.sql
 --
+-- La quota delle foto e la maturazione degli slot della galleria stanno in un
+-- file a parte, perché la matrice dei casi limite sul calendario è lunga:
+--
+--   psql "$DATABASE_URL" -f db/verify-foto.sql
+--
 -- Se qualcosa non torna solleva un'eccezione con il valore trovato.
 --
 -- I confronti usano `is distinct from` e non `<>`: in SQL `NULL <> x` vale NULL,

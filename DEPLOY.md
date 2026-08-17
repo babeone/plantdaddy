@@ -678,6 +678,197 @@ curl -sD- -o /dev/null -X POST https://<HOST>/superman \
   | grep -i set-cookie
 ```
 
+## 10b. MinIO per le foto delle piante (facoltativo)
+
+Senza questa sezione l'app funziona: le API delle foto rispondono **503** con
+"Archivio foto non configurato" e tutto il resto — piante, cure, notifiche,
+pannello — va normalmente. Verificato.
+
+### 10b.1 Perché MinIO non va pubblicato su internet
+
+Le immagini passano dal **proxy dell'app** (`GET /api/photos/<id>`), non da URL
+firmati. Due ragioni concrete, non estetiche:
+
+1. La CSP dell'app è `img-src 'self' blob:` senza host esterni. Un URL verso
+   MinIO richiederebbe di allargarla.
+2. Un URL firmato richiede MinIO raggiungibile dal browser, quindi pubblicato
+   attraverso Traefik: una superficie in più esposta per risparmiare banda su
+   immagini da 38 KB.
+
+Conseguenza operativa: **nel Compose non c'è nessun `ports:`**. L'app raggiunge
+MinIO come `http://plantdaddy-minio:9000` sulla rete interna di Docker, e il
+browser non vede mai un indirizzo di MinIO.
+
+### 10b.2 Credenziali
+
+Genera **due** coppie distinte. Le root servono solo all'amministrazione; l'app
+usa una coppia dedicata con permessi sul solo bucket di PlantDaddy, creata
+dall'init container. Se le chiavi dell'app finissero in mano a qualcuno, il danno
+massimo sono queste foto, non l'intero server di storage.
+
+```bash
+echo "MINIO_ROOT_USER=plantdaddy-root"
+echo "MINIO_ROOT_PASSWORD=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)"
+echo "S3_ACCESS_KEY=plantdaddy-app"
+echo "S3_SECRET_KEY=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)"
+```
+
+### 10b.3 Il servizio
+
+Progetto `plantdaddy` → **Create Service** → **Compose**.
+
+| Campo        | Valore                       |
+| ------------ | ---------------------------- |
+| Name         | `plantdaddy-minio`           |
+| Compose Type | Docker Compose               |
+| Compose Path | `./deploy/minio-compose.yml` |
+| Source       | lo stesso repo dell'app      |
+
+Nella scheda **Environment** del servizio Compose:
+
+```
+MINIO_ROOT_USER=plantdaddy-root
+MINIO_ROOT_PASSWORD=<quella generata sopra>
+S3_ACCESS_KEY=plantdaddy-app
+S3_SECRET_KEY=<quella generata sopra>
+S3_BUCKET=plantdaddy
+```
+
+Il file `deploy/minio-compose.yml` è nel repository e fa tre cose che vanno
+capite prima di premere Deploy:
+
+- **volume nominato** `plantdaddy-minio-data`, non un bind mount su un percorso
+  sparso: Docker lo gestisce, sopravvive ai redeploy e si ritrova con
+  `docker volume ls`;
+- **limiti espliciti** di 512 MB e 0,5 vCPU, così MinIO non può affamare Postgres
+  su una macchina da 4 GB;
+- un **init container** che crea il bucket **privato** e l'utente applicativo con
+  una policy limitata a quel bucket e alle sole operazioni che l'app usa —
+  `GetObject`, `PutObject`, `DeleteObject`, `ListBucket`. Niente amministrazione,
+  niente altri bucket.
+
+Il tag dell'immagine è **fissato**, non `:latest`: un aggiornamento involontario
+del server di storage è l'ultima cosa da scoprire da un redeploy.
+
+### 10b.4 Variabili nell'applicazione
+
+In `plantdaddy-app` → **Environment**, aggiungi:
+
+| Variabile               | Valore                         | Note                                                                               |
+| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `S3_ENDPOINT`           | `http://plantdaddy-minio:9000` | **nome del service**, come per il database: vedi § 3 sul suffisso casuale di Swarm |
+| `S3_BUCKET`             | `plantdaddy`                   |                                                                                    |
+| `S3_ACCESS_KEY`         | `plantdaddy-app`               | la coppia dedicata, **non** le root                                                |
+| `S3_SECRET_KEY`         | `<segreto>`                    |                                                                                    |
+| `S3_REGION`             | `us-east-1`                    | MinIO non ha regioni, ma il protocollo pretende un valore per firmare              |
+| `PHOTO_UPLOADS_PER_DAY` | `10`                           | limita il churn di chi cancella e ricarica                                         |
+
+> Il nome del service MinIO ha lo stesso problema del database: Dokploy gira in
+> Swarm e aggiunge un suffisso casuale. Leggilo, non inventarlo:
+>
+> ```bash
+> docker service ls | grep -i minio
+> ```
+>
+> Con l'hostname sbagliato gli upload rispondono 503 "Archivio foto non
+> raggiungibile", che sembra un problema di MinIO e non lo è.
+
+`BODY_SIZE_LIMIT` è già a `20M` nel Dockerfile: serve ai 15 MB di una foto, ed è
+**globale** per adapter-node, quindi alza anche il tetto di `/api/import`. Il
+limite per-rotta lo impone il codice, contando i byte durante la lettura.
+
+### 10b.5 I due Schedule
+
+Progetto `plantdaddy` → **Schedules**, oltre a quello delle notifiche di § 8:
+
+| Task            | Schedule     | Command                                                                                                 |
+| --------------- | ------------ | ------------------------------------------------------------------------------------------------------- |
+| Promemoria foto | `0 * * * *`  | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://plantdaddy-app:3000/api/cron/photo-reminders` |
+| Pulizia orfani  | `30 4 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://plantdaddy-app:3000/api/cron/photo-cleanup`   |
+
+I promemoria girano **ogni ora** e non una volta al giorno perché `notify_hour` è
+per utente: la query serve solo chi ha scelto quell'ora, stretta alla fascia
+10–20. Ogni utente riceve al massimo **una** notifica foto al giorno, aggregata
+se più piante maturano insieme.
+
+La pulizia gira **una volta al giorno**, di notte. Con `?dry-run` dice cosa
+cancellerebbe senza toccare niente:
+
+```bash
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" "http://plantdaddy-app:3000/api/cron/photo-cleanup?dry-run"
+```
+
+### 10b.6 La console di amministrazione
+
+**Non pubblicarla.** Nel Compose non c'è nessun `ports:`, quindi la console sulla
+9001 è raggiungibile solo dalla rete interna. Per aprirla, un tunnel SSH dal tuo
+computer:
+
+```bash
+ssh -L 9001:plantdaddy-minio:9001 root@<IP-DEL-VPS>
+```
+
+Poi `http://localhost:9001` nel browser, credenziali root. Finito il tunnel, la
+console torna irraggiungibile. Nessun certificato da gestire, nessuna pagina di
+login esposta a internet, nessun bruteforce possibile.
+
+### 10b.7 Backup delle foto — questo sì che serve
+
+Il database non è sotto backup per scelta (§ 11), e le foto sono un caso
+**diverso**: uno storico di annaffiature si può ricostruire a memoria, una foto di
+due anni fa no. Se il disco muore senza una copia altrove, quelle immagini sono
+perse per sempre.
+
+`deploy/backup-minio.sh` fa un `mc mirror` incrementale verso un bucket esterno.
+Come destinazione conviene **Cloudflare R2**: l'egress è gratuito, quindi il
+giorno del ripristino — l'unico in cui scarichi tutto — non arriva una bolletta.
+
+Da mettere come Schedule giornaliero, con queste variabili:
+
+```
+SRC_KEY / SRC_SECRET      le chiavi applicative di MinIO
+DST_ENDPOINT              https://<account-id>.r2.cloudflarestorage.com
+DST_BUCKET                plantdaddy-foto
+DST_KEY / DST_SECRET      un token R2 con accesso a quel solo bucket
+```
+
+Lo script usa `--remove`, quindi propaga anche le cancellazioni e il backup non
+cresce per sempre. Togliendo quel flag diventa un archivio storico: scelta
+diversa, e più costosa.
+
+E provalo davvero, ripristinando qualche file su un bucket temporaneo. Un backup
+non verificato non è un backup.
+
+### 10b.8 Quanto spazio stanno occupando
+
+Le dimensioni sono nel database, quindi si leggono senza interrogare MinIO:
+
+```sql
+select
+  count(*) as foto,
+  pg_size_pretty(sum(bytes_stored + bytes_thumb)) as occupato,
+  pg_size_pretty(sum(bytes_original)) as originali_prima_della_compressione
+from plant_photos;
+```
+
+Il tetto è calcolabile e non cresce a sorpresa: **100 piante per utente**, un
+avatar più `1 + trimestri` slot ciascuna. Un utente con 100 piante da due anni sta
+sotto i 400 MB. Il pannello di controllo (§ 10) mostra la dimensione del database;
+per il disco della macchina:
+
+```bash
+docker system df -v | grep plantdaddy-minio-data
+df -h /
+```
+
+Quando il disco si avvicina alla saturazione MinIO comincia a rifiutare le
+scritture e gli upload rispondono 503 con un messaggio chiaro, mentre l'app
+continua a funzionare — le pagine si caricano e le foto già presenti si vedono.
+Non è una situazione a cui arrivare: 40 GB su questa VPS sono condivisi con
+Postgres e con le immagini Docker.
+
+---
+
 ## 11. Backup del database — deliberatamente non configurato
 
 Nessuno Schedule di backup: scelta consapevole per un'app personale.

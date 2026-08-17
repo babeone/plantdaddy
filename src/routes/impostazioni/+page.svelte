@@ -222,6 +222,29 @@
 		<div class="warn"><div>{push.error}</div></div>
 	{/if}
 
+	<div class="group-title">Diario foto</div>
+	<div class="group">
+		<div class="item">
+			<div class="t">
+				<b>📷 Promemoria trimestrale</b>
+				<small>
+					Un avviso quando una pianta matura un nuovo slot del diario. Al massimo uno al giorno,
+					raggruppato se più piante maturano insieme.
+				</small>
+			</div>
+			<button
+				class="switch"
+				role="switch"
+				aria-checked={plants.settings.photo_reminders}
+				aria-label="Promemoria foto"
+				disabled={savingSettings}
+				onclick={() => saveSettings({ photo_reminders: !plants.settings.photo_reminders })}
+			>
+				<i></i>
+			</button>
+		</div>
+	</div>
+
 	<div class="group-title">App</div>
 	<div class="group">
 		<button class="item" onclick={() => (showInstallGuide = true)}>
