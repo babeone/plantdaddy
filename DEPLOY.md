@@ -734,7 +734,7 @@ S3_SECRET_KEY=<quella generata sopra>
 S3_BUCKET=plantdaddy
 ```
 
-Il file `deploy/minio-compose.yml` è nel repository e fa tre cose che vanno
+Il file `deploy/minio-compose.yml` è nel repository e fa quattro cose che vanno
 capite prima di premere Deploy:
 
 - **volume nominato** `plantdaddy-minio-data`, non un bind mount su un percorso
@@ -746,6 +746,32 @@ capite prima di premere Deploy:
   una policy limitata a quel bucket e alle sole operazioni che l'app usa —
   `GetObject`, `PutObject`, `DeleteObject`, `ListBucket`. Niente amministrazione,
   niente altri bucket.
+
+- l'init **aspetta MinIO con un ciclo**, non con `depends_on`.
+
+Le ultime due righe meritano una spiegazione, perché sono il punto in cui questo
+compose si comporta diversamente dalla maggior parte degli esempi in giro.
+**Dokploy gira in Swarm**, e Swarm e `docker compose up` onorano campi diversi:
+
+| Campo                         | `docker compose up` | Swarm        |
+| ----------------------------- | ------------------- | ------------ |
+| `mem_limit` / `cpus`          | onorato             | ignorato     |
+| `deploy.resources.limits`     | ignorato            | onorato      |
+| `restart:`                    | onorato             | ignorato     |
+| `deploy.restart_policy`       | ignorato            | onorato      |
+| `depends_on: service_healthy` | onorato             | **ignorato** |
+
+Il file scrive **entrambe** le forme dei limiti e della restart policy: con una
+sola, in Swarm il limite di memoria sarebbe silenziosamente inefficace — cioè
+MinIO potrebbe mangiarsi la RAM di Postgres senza che niente lo fermi, che è
+esattamente il rischio per cui quei limiti esistono. Ciascuna forma viene
+ignorata senza errori dalla modalità che non la usa.
+
+Per `depends_on` non esiste un equivalente Swarm, quindi l'attesa è un ciclo
+dentro il comando dell'init: 60 tentativi da 2 secondi. Senza, in Swarm l'init
+partirebbe prima di MinIO, `mc alias set` fallirebbe, `set -e` interromperebbe
+tutto e **il bucket non verrebbe mai creato** — con l'app che poi risponde 503 su
+ogni foto senza una causa evidente nei log.
 
 Il tag dell'immagine è **fissato**, non `:latest`: un aggiornamento involontario
 del server di storage è l'ultima cosa da scoprire da un redeploy.
