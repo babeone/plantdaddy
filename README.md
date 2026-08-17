@@ -265,6 +265,7 @@ that already hosts other Dokploy projects, including the isolation rules and the
 post-deploy checks that verify from **outside** the box that no port got
 published by accident.
 
+
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — **free for noncommercial use, paid for
