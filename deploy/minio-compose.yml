@@ -64,9 +64,21 @@ services:
       # ritrova con `docker volume ls`. Un bind mount su una cartella sparsa nel
       # filesystem è la strada per perdere i dati durante una pulizia.
       - plantdaddy-minio-data:/data
-    # NESSUN ports: — non serve, e pubblicare la 9000 metterebbe l'archivio su
-    # internet. L'app lo raggiunge come http://plantdaddy-minio:9000 sulla rete
-    # interna di Docker.
+    ports:
+      # LA 9000 NON È PUBBLICATA, e non deve esserlo: l'app raggiunge MinIO come
+      # http://plantdaddy-minio:9000 sulla rete interna, e pubblicarla metterebbe
+      # l'archivio su internet.
+      #
+      # La 9001 (console di amministrazione) è pubblicata SOLO su 127.0.0.1 del
+      # VPS. La differenza fra "127.0.0.1:9001:9001" e "9001:9001" è tutto:
+      # il primo ascolta solo sull'interfaccia di loopback della macchina, quindi
+      # da internet la porta risulta chiusa e nemmeno Traefik la vede; il secondo
+      # la esporrebbe al mondo. Serve perché la console si apre con un tunnel SSH,
+      # e un tunnel `-L 9001:plantdaddy-minio:9001` NON funziona: il nome
+      # plantdaddy-minio lo risolve il DNS interno di Docker, non l'host, quindi
+      # ssh non sa dove connettersi. Con questa riga il tunnel giusto è
+      #   ssh -L 9001:127.0.0.1:9001 root@<IP-DEL-VPS>
+      - '127.0.0.1:9001:9001'
     # I LIMITI SONO SCRITTI DUE VOLTE, e non è una svista.
     #
     # `deploy.resources` lo onora Swarm e lo IGNORA `docker compose up`.

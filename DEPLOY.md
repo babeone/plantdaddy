@@ -857,17 +857,53 @@ curl -fsS -H "Authorization: Bearer $CRON_SECRET" "http://plantdaddy-app:3000/ap
 
 ### 10b.6 La console di amministrazione
 
-**Non pubblicarla.** Nel Compose non c'è nessun `ports:`, quindi la console sulla
-9001 è raggiungibile solo dalla rete interna. Per aprirla, un tunnel SSH dal tuo
-computer:
+**Non esporla a internet.** Il compose pubblica la 9001 **solo su 127.0.0.1 del
+VPS**:
 
-```bash
-ssh -L 9001:plantdaddy-minio:9001 root@<IP-DEL-VPS>
+```yaml
+ports:
+  - '127.0.0.1:9001:9001'
 ```
 
-Poi `http://localhost:9001` nel browser, credenziali root. Finito il tunnel, la
-console torna irraggiungibile. Nessun certificato da gestire, nessuna pagina di
-login esposta a internet, nessun bruteforce possibile.
+Quel prefisso è tutta la differenza. `127.0.0.1:9001:9001` ascolta solo
+sull'interfaccia di loopback della macchina: da internet la porta risulta chiusa e
+nemmeno Traefik la vede. `9001:9001` senza prefisso la esporrebbe al mondo. La
+9000 invece non è pubblicata affatto, e non deve esserlo.
+
+Il tunnel giusto è verso **127.0.0.1**, non verso il nome del container:
+
+```bash
+ssh -L 9001:127.0.0.1:9001 root@<IP-DEL-VPS>
+```
+
+Poi `http://localhost:9001` nel browser, credenziali root.
+
+> **`ssh -L 9001:plantdaddy-minio:9001` NON funziona**, ed è un errore facile da
+> fare. In `-L porta:host:porta` quell'`host` viene risolto **dal VPS**, e
+> `plantdaddy-minio` è un alias del DNS interno di Docker: esiste solo dentro la
+> rete dei container, l'host non lo conosce. Il tunnel si apre e poi fallisce alla
+> prima connessione. Per convincersene:
+>
+> ```bash
+> ssh root@<IP-DEL-VPS> 'getent hosts plantdaddy-minio || echo "l'"'"'host non risolve questo nome"'
+> ```
+
+Finito il tunnel la console torna irraggiungibile. Nessun certificato da gestire,
+nessuna pagina di login su internet, nessun bruteforce possibile.
+
+### Alternativa senza pubblicare nulla: `mc` da un container usa-e-getta
+
+Se preferisci non avere nemmeno il listener su loopback, togli la riga `ports:` e
+usa la riga di comando. Copre tutto quello che serve davvero — elenco, spazio
+occupato, utenti, policy — e non apre niente:
+
+```bash
+docker run --rm -it --network dokploy-network \
+  -e MC_HOST_locale="http://<S3_ACCESS_KEY>:<S3_SECRET_KEY>@plantdaddy-minio:9000" \
+  quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z sh
+```
+
+Dentro: `mc ls locale/plantdaddy`, `mc du locale/plantdaddy`, `mc admin info locale`.
 
 ### 10b.7 Backup delle foto — questo sì che serve
 
