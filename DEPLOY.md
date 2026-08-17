@@ -938,26 +938,84 @@ foto già presenti si vedono.
 Deploya il servizio Compose di § 10b.3 **senza toccare MinIO**. Per un momento
 girano entrambi: due archivi, due alias di rete distinti, nessun conflitto.
 
-### 2. Copia i file
+### 2. Copia i file — con un MinIO TEMPORANEO, non con quello di Dokploy
 
-Da una shell del VPS, con `<SEGRETO-MINIO>` e `<SEGRETO-RUSTFS>` al posto giusto:
+> **PERCHÉ NON SI RIACCENDE SEMPLICEMENTE MINIO.** Due ostacoli, entrambi reali:
+>
+> 1. **Conflitto di porta.** Sia il compose di MinIO sia quello di RustFS
+>    pubblicano la console su `127.0.0.1:9001`. Con MinIO in piedi, il deploy di
+>    RustFS falliva con "port is already allocated". Non si possono tenere accesi
+>    entrambi finché uno dei due pubblica quella porta.
+> 2. **Il compose di MinIO non è più nel repository**, perché è stato sostituito da
+>    quello di RustFS. Dokploy lancia `docker compose -f ./deploy/minio-compose.yml`
+>    e quel file non esiste più: Start e Redeploy del servizio MinIO falliscono.
+>
+> La via che funziona in entrambi i casi è avviare un MinIO **temporaneo a mano**,
+> montando lo stesso volume, **senza pubblicare nessuna porta** — quindi nessun
+> conflitto — e con l'alias di rete che serve a `mc` per trovarlo.
+>
+> Il volume non è stato toccato: le foto sono là. MinIO su disco singolo non
+> salva i file come file normali (ogni oggetto è una cartella con `xl.meta` e le
+> parti), quindi copiarli dal filesystem NON funziona: serve un MinIO che li
+> serva via S3.
+
+**a. Trova il nome esatto del volume** e controlla che contenga qualcosa:
+
+```bash
+docker volume ls | grep -i minio
+```
+
+```bash
+docker run --rm -v <NOME-VOLUME>:/data alpine sh -c 'du -sh /data; ls /data'
+```
+
+Devi vedere una cartella col nome del bucket (`plantdaddy`) e una dimensione
+sensata. Se `/data` è vuoto, fermati: i dati non sono lì e va indagato prima di
+qualunque altra cosa.
+
+**b. Avvia il MinIO temporaneo.** Le credenziali root sono quelle che avevi messo
+in `MINIO_ROOT_USER` e `MINIO_ROOT_PASSWORD` del servizio Compose:
+
+```bash
+docker run -d --name minio-migrazione \
+  --network dokploy-network --network-alias plantdaddy-minio \
+  -v <NOME-VOLUME>:/data \
+  -e MINIO_ROOT_USER='<ROOT-USER>' \
+  -e MINIO_ROOT_PASSWORD='<ROOT-PASSWORD>' \
+  quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+```
+
+Nessun `-p`: è il punto. Non pubblica niente, quindi non litiga con RustFS.
+
+Verifica che risponda dentro la rete:
+
+```bash
+docker logs minio-migrazione 2>&1 | tail -5
+```
+
+**c. Copia.** Si usano le credenziali **root** di MinIO: gli utenti IAM stanno nel
+volume e dovrebbero esserci ancora, ma le root funzionano di sicuro e questo è un
+container che vivrà dieci minuti.
 
 ```bash
 docker run --rm --network dokploy-network --entrypoint sh \
   quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z -c '
-    mc alias set vecchio http://plantdaddy-minio:9000 plantdaddy-app "<SEGRETO-MINIO>" &&
-    mc alias set nuovo  http://plantdaddy-rustfs:9000 plantdaddy   "<SEGRETO-RUSTFS>" &&
+    mc alias set vecchio http://plantdaddy-minio:9000 "<ROOT-USER>" "<ROOT-PASSWORD>" &&
+    mc alias set nuovo  http://plantdaddy-rustfs:9000 plantdaddy "<SEGRETO-RUSTFS>" &&
     mc mirror --overwrite vecchio/plantdaddy nuovo/plantdaddy &&
     echo "--- conteggi ---" &&
     echo "vecchio: $(mc ls --recursive vecchio/plantdaddy | wc -l)" &&
     echo "nuovo:   $(mc ls --recursive nuovo/plantdaddy   | wc -l)"'
 ```
 
-**I due conteggi devono coincidere.** Se non coincidono, fermati qui e non
-proseguire: rilancia il mirror.
+**I due conteggi devono coincidere.** Niente `--remove`: è una copia, il volume di
+MinIO resta intatto.
 
-Nota che **non** c'è `--remove`: è una copia, non una sincronizzazione. Se qualcosa
-va storto, MinIO è ancora intatto.
+**d. Spegni il temporaneo**, ma NON cancellare il volume:
+
+```bash
+docker rm -f minio-migrazione
+```
 
 ### 3. Cambia l'endpoint dell'app
 
