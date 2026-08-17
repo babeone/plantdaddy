@@ -154,24 +154,34 @@ export function inBuffer(): number {
 }
 
 /**
- * Avvia il flush periodico e registra lo spegnimento pulito.
+ * Avvia il flush periodico e registra lo svuotamento allo spegnimento.
  *
- * Il flush allo SIGTERM serve davvero: Dokploy manda SIGTERM a ogni redeploy, e
+ * Il flush alla chiusura serve davvero: Dokploy manda SIGTERM a ogni redeploy, e
  * senza questo si perderebbero gli ultimi secondi di dati — proprio quelli che si
- * guardano quando si sta cercando di capire cosa è andato storto prima di un
- * riavvio.
+ * guardano quando si cerca di capire cosa è andato storto prima di un riavvio.
  *
- * unref() sul timer: un interval attivo tiene vivo il processo Node e
- * impedirebbe a un container di terminare da solo.
+ * SI ASCOLTA `sveltekit:shutdown`, NON SIGTERM.
+ *
+ * adapter-node ha già i suoi handler per SIGTERM e SIGINT: chiudono il server
+ * HTTP, aspettano che le richieste in volo finiscano (fino a SHUTDOWN_TIMEOUT) e
+ * solo allora emettono questo evento. Registrare un secondo handler su SIGTERM che
+ * chiama process.exit() avrebbe troncato quel drenaggio, cioè avrebbe interrotto
+ * richieste di utenti veri a ogni redeploy per salvare qualche riga di metriche.
+ * Uno scambio assurdo, ed è quello che il codice faceva prima di questa nota.
+ *
+ * Non si chiama process.exit() nemmeno qui: il flush è una promise pendente su un
+ * socket attivo, quindi tiene vivo l'event loop finché non si risolve, e poi Node
+ * esce da solo perché non resta niente da fare.
+ *
+ * unref() sul timer: un interval attivo terrebbe vivo il processo per sempre e
+ * impedirebbe al container di terminare.
  */
 export function avvia(): void {
 	if (timer) return;
 	timer = setInterval(() => void flush(), flushMs());
 	timer.unref?.();
 
-	for (const segnale of ['SIGTERM', 'SIGINT'] as const) {
-		process.once(segnale, () => {
-			void flush().finally(() => process.exit(0));
-		});
-	}
+	process.once('sveltekit:shutdown', () => {
+		void flush();
+	});
 }
