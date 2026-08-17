@@ -751,7 +751,17 @@ capite prima di premere Deploy:
 
 Le ultime due righe meritano una spiegazione, perché sono il punto in cui questo
 compose si comporta diversamente dalla maggior parte degli esempi in giro.
-**Dokploy gira in Swarm**, e Swarm e `docker compose up` onorano campi diversi:
+
+**In Dokploy convivono due modalità.** Application e Database sono service
+**Swarm** (`docker service ls` li elenca). I servizi **Compose** invece vengono
+lanciati con `docker compose up` standalone — lo si legge nel log del deploy:
+
+```
+Compose Type: docker-compose ✅
+Command: docker compose -p plantdaddy-minio-zwulcd -f ./deploy/minio-compose.yml up -d
+```
+
+Le due modalità onorano campi diversi:
 
 | Campo                         | `docker compose up` | Swarm        |
 | ----------------------------- | ------------------- | ------------ |
@@ -761,17 +771,34 @@ compose si comporta diversamente dalla maggior parte degli esempi in giro.
 | `deploy.restart_policy`       | ignorato            | onorato      |
 | `depends_on: service_healthy` | onorato             | **ignorato** |
 
-Il file scrive **entrambe** le forme dei limiti e della restart policy: con una
-sola, in Swarm il limite di memoria sarebbe silenziosamente inefficace — cioè
-MinIO potrebbe mangiarsi la RAM di Postgres senza che niente lo fermi, che è
-esattamente il rischio per cui quei limiti esistono. Ciascuna forma viene
-ignorata senza errori dalla modalità che non la usa.
+Il file scrive **entrambe** le forme dei limiti e della restart policy, e ha
+l'attesa di MinIO sia con `depends_on` sia con un ciclo nel comando dell'init.
+Con la modalità compose che usa Dokploy oggi bastano le prime; le seconde servono
+se un domani Dokploy cambiasse, o se qualcuno prendesse questo file per un
+`docker stack deploy`. Ciascuna forma viene ignorata senza errori dalla modalità
+che non la usa.
 
-Per `depends_on` non esiste un equivalente Swarm, quindi l'attesa è un ciclo
-dentro il comando dell'init: 60 tentativi da 2 secondi. Senza, in Swarm l'init
-partirebbe prima di MinIO, `mc alias set` fallirebbe, `set -e` interromperebbe
-tutto e **il bucket non verrebbe mai creato** — con l'app che poi risponde 503 su
-ogni foto senza una causa evidente nei log.
+### La rete: è qui che si sbaglia
+
+`docker compose up` crea una **rete propria del progetto** e ci mette dentro i
+suoi container. L'app invece è un service Swarm su `dokploy-network`: due mondi
+che per default **non si vedono**. Il deploy riesce, MinIO parte, e ogni upload
+risponde 503 "Archivio non raggiungibile" senza niente di evidente nei log.
+
+Per questo il compose dichiara `dokploy-network` come `external` e attacca MinIO
+con un **alias esplicito**, `plantdaddy-minio`. L'alias e non il nome di servizio
+`minio` perché la rete è condivisa fra tutti i progetti della macchina, e `minio`
+è un nome che un altro progetto potrebbe già usare.
+
+Da verificare una volta sola, prima del primo deploy:
+
+```bash
+docker network ls | grep dokploy
+```
+
+Se il nome non è esattamente `dokploy-network`, va corretto nel compose. Con il
+nome sbagliato il deploy **fallisce subito** con `network ... not found`, che è
+molto meglio di un deploy riuscito e un'app che non trova l'archivio.
 
 Il tag dell'immagine è **fissato**, non `:latest`: un aggiornamento involontario
 del server di storage è l'ultima cosa da scoprire da un redeploy.
@@ -789,15 +816,19 @@ In `plantdaddy-app` → **Environment**, aggiungi:
 | `S3_REGION`             | `us-east-1`                    | MinIO non ha regioni, ma il protocollo pretende un valore per firmare              |
 | `PHOTO_UPLOADS_PER_DAY` | `10`                           | limita il churn di chi cancella e ricarica                                         |
 
-> Il nome del service MinIO ha lo stesso problema del database: Dokploy gira in
-> Swarm e aggiunge un suffisso casuale. Leggilo, non inventarlo:
+> **`S3_ENDPOINT` non segue la regola del § 3.** Il database è un service Swarm e
+> ha il suffisso casuale (`plantdaddy-plantdaddydb-ib0ewe`); MinIO è un servizio
+> Compose, quindi `docker service ls` **non lo elenca affatto** e il nome che
+> Dokploy mostra (`plantdaddy-minio-zwulcd`) è quello del progetto compose, non un
+> nome DNS. L'indirizzo raggiungibile è l'alias dichiarato nel file:
+> **`plantdaddy-minio`**, stabile per costruzione e senza suffissi da leggere.
+>
+> Per convincersene dopo il deploy, dal container dell'app:
 >
 > ```bash
-> docker service ls | grep -i minio
+> docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) \
+>   node -e "fetch('http://plantdaddy-minio:9000/minio/health/live').then(r=>console.log('MinIO risponde:',r.status)).catch(e=>console.log('NON raggiungibile:',e.message))"
 > ```
->
-> Con l'hostname sbagliato gli upload rispondono 503 "Archivio foto non
-> raggiungibile", che sembra un problema di MinIO e non lo è.
 
 `BODY_SIZE_LIMIT` è già a `20M` nel Dockerfile: serve ai 15 MB di una foto, ed è
 **globale** per adapter-node, quindi alza anche il tetto di `/api/import`. Il

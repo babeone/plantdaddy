@@ -12,6 +12,28 @@
 #
 # Dopo il primo avvio l'init si spegne da solo (restart: "no") e non riparte:
 # è idempotente, quindi rilanciarlo non rompe niente.
+#
+# ---------------------------------------------------------------------------
+# LA RETE È LA PARTE CHE FA FALLIRE TUTTO SE SBAGLIATA
+#
+# Dokploy deploya i servizi "Compose" con `docker compose up` standalone, mentre
+# Application e Database sono service SWARM. Sono due mondi che per default NON
+# si vedono: `docker compose` crea una rete propria del progetto
+# (<progetto>_default) e ci mette dentro i suoi container, quindi l'app —
+# che vive su dokploy-network — non riuscirebbe a risolvere il nome di MinIO e
+# ogni upload risponderebbe 503 "Archivio non raggiungibile", senza niente di
+# evidente nei log.
+#
+# Per questo dokploy-network è dichiarata `external` e MinIO ci viene attaccato
+# con un ALIAS esplicito. L'alias serve perché su una rete condivisa fra progetti
+# il nome di servizio `minio`, che compose userebbe da solo, è troppo generico:
+# un altro progetto con un servizio chiamato allo stesso modo lo sovrascriverebbe.
+# `plantdaddy-minio` è il nome da mettere in S3_ENDPOINT.
+#
+# dokploy-network è overlay e attachable: è Dokploy a crearla così proprio perché
+# i container standalone possano unirsi. Da verificare una volta con
+# `docker network ls | grep dokploy`.
+# ---------------------------------------------------------------------------
 
 services:
   minio:
@@ -28,6 +50,14 @@ services:
       # DEPLOY.md § 11.6). Questa riga la fa comunque rispondere sulla 9001
       # interna.
       MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    networks:
+      dokploy-network:
+        # È QUESTO il nome da mettere in S3_ENDPOINT dell'app:
+        #   S3_ENDPOINT=http://plantdaddy-minio:9000
+        # Senza l'alias, compose registrerebbe solo `minio`, che su una rete
+        # condivisa fra progetti è troppo generico.
+        aliases:
+          - plantdaddy-minio
     volumes:
       # Volume NOMINATO e non bind mount su un percorso qualsiasi: Docker lo
       # gestisce sotto /var/lib/docker/volumes/, sopravvive ai redeploy e si
@@ -92,6 +122,8 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET:-plantdaddy}
+    networks:
+      - dokploy-network
     entrypoint: ['/bin/sh', '-c']
     command:
       - |
@@ -101,7 +133,7 @@ services:
         # `docker compose up`, mentre Swarm lo ignora del tutto. 60 tentativi da
         # 2 secondi sono due minuti, abbondanti per un MinIO che parte.
         tentativo=1
-        until mc alias set locale http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+        until mc alias set locale http://plantdaddy-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" 2>/dev/null; do
           if [ "$$tentativo" -ge 60 ]; then
             echo "MinIO non risponde dopo 120s: mi fermo" >&2
             exit 1
@@ -152,6 +184,13 @@ services:
         mc admin policy attach locale plantdaddy-app --user "$$S3_ACCESS_KEY" || true
 
         echo "MinIO pronto: bucket $$S3_BUCKET privato, utente $$S3_ACCESS_KEY con permessi limitati."
+
+networks:
+  # external: la rete esiste già, la crea Dokploy. Dichiararla qui NON la crea:
+  # se il nome è sbagliato il deploy fallisce subito con "network not found",
+  # che è molto meglio di un deploy riuscito con l'app che non trova MinIO.
+  dokploy-network:
+    external: true
 
 volumes:
   plantdaddy-minio-data:
