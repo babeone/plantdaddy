@@ -10,10 +10,13 @@ import { env } from '$env/dynamic/private';
 /**
  * Object storage delle foto.
  *
- * Si usa `@aws-sdk/client-s3` e non il client specifico di MinIO: è lo stesso
- * protocollo, quindi lo stesso codice gira identico su MinIO self-hosted e su
- * Cloudflare R2. Migrare vuol dire cambiare tre variabili d'ambiente e copiare i
- * file, senza toccare una riga.
+ * Si usa `@aws-sdk/client-s3` e non il client specifico di un server: è lo stesso
+ * protocollo, quindi lo stesso codice gira identico su RustFS self-hosted, su
+ * MinIO e su Cloudflare R2. Cambiare archivio vuol dire cambiare tre variabili
+ * d'ambiente e copiare i file.
+ *
+ * Non è teoria: il passaggio da MinIO a RustFS non ha richiesto una riga di
+ * modifica in questo file.
  *
  * QUI NON SI COSTRUISCONO URL. Le funzioni parlano solo di chiavi relative, come
  * `plants/<id>/<foto>.webp`, e nel database finiscono solo quelle — c'è anche un
@@ -33,12 +36,13 @@ function createClient(): S3Client {
 	}
 	return new S3Client({
 		endpoint,
-		// MinIO non ha regioni, ma il protocollo pretende un valore per firmare.
+		// I server self-hosted non hanno regioni, ma il protocollo pretende un valore
+		// per firmare la richiesta.
 		region: env.S3_REGION ?? 'us-east-1',
 		credentials: { accessKeyId, secretAccessKey },
-		// Indispensabile con MinIO: senza, l'SDK userebbe
+		// Indispensabile con RustFS e MinIO: senza, l'SDK userebbe
 		// https://bucket.host/chiave (virtual-hosted) invece di
-		// https://host/bucket/chiave, e MinIO risponderebbe 404 su tutto.
+		// https://host/bucket/chiave, e il server risponderebbe 404 su tutto.
 		forcePathStyle: true
 	});
 }

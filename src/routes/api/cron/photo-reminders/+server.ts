@@ -5,6 +5,7 @@ import webpush, { WebPushError } from 'web-push';
 import { sql } from '$lib/server/db';
 import { currentHour } from '$lib/server/date';
 import { secretMatches } from '$lib/server/notify';
+import { registraRun } from '$lib/server/metrics/jobs';
 import {
 	LOCK_PROMEMORIA_FOTO,
 	candidatiFoto,
@@ -31,6 +32,7 @@ const MAX_UTENTI = 50;
 const CONCORRENZA = 5;
 
 export const GET: RequestHandler = async ({ request, url }) => {
+	const inizioRun = Date.now();
 	/*
 	 * AUTORIZZAZIONE PRIMA DI QUALSIASI QUERY, come in /api/cron/notify. Senza
 	 * questo ordine una riga di curl senza credenziali farebbe valutare
@@ -166,5 +168,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		subscription_rimosse: rimosse
 	};
 	console.log('[cron/photo-reminders]', JSON.stringify(esitoLog));
+	// Traccia in job_runs: la dashboard risponde a "il cron gira davvero?" con un
+	// dato, non con un indizio. Non fa fallire il job se la scrittura non riesce.
+	await registraRun('photo-reminders', inizioRun, { ok: true, detail: esitoLog });
 	return json(esitoLog);
 };

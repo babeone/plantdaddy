@@ -1,0 +1,175 @@
+# RustFS per PlantDaddy — da incollare in Dokploy come servizio "Compose".
+#
+# Sostituisce MinIO. L'applicazione NON cambia di una riga: usa
+# @aws-sdk/client-s3 con forcePathStyle e legge l'endpoint da variabile
+# d'ambiente, quindi passare da un server S3 a un altro è cambiare S3_ENDPOINT e
+# copiare i file. Era il motivo per cui nel database finiscono solo chiavi
+# relative, con un CHECK che rifiuta le URL assolute.
+#
+# COSA SAPERE PRIMA DI DEPLOYARE, senza addolcirlo:
+#
+# 1. RustFS è a 1.0.0-rc.2, cioè release candidate, e il suo Docker Hub sconsiglia
+#    l'uso in produzione. Le foto degli utenti non si rigenerano. Il backup verso
+#    un bucket esterno (deploy/backup-foto.sh) qui non è un extra: è la rete.
+#
+# 2. RustFS NON ha CLI né API per creare utenti con permessi limitati — è una
+#    lacuna aperta a monte (rustfs/rustfs#1571). Con MinIO l'app usava una chiave
+#    che poteva solo leggere, scrivere e cancellare oggetti dentro il suo bucket.
+#    Qui usa le credenziali principali, che possono anche cancellare il bucket
+#    intero e creare altre chiavi. La probabilità di perderle è identica — stessa
+#    variabile d'ambiente — ma le conseguenze di una perdita sono più ampie.
+#    Quando l'issue sarà chiusa si torna a una chiave limitata cambiando due env.
+#
+# 3. mc admin NON funziona: RustFS espone /rustfs/admin/v3/ mentre mc parla a
+#    /minio/admin/v3/. Le operazioni S3 sì. Per questo l'init qui sotto usa la AWS
+#    CLI e solo chiamate S3 pure: funziona identico su RustFS, su MinIO e su R2.
+#
+# LA RETE: Dokploy deploya i servizi Compose con `docker compose up` standalone,
+# mentre Application e Database sono service Swarm. Sono due mondi che per default
+# non si vedono, quindi dokploy-network è dichiarata external e RustFS ci viene
+# attaccato con un alias esplicito. Senza, il deploy riesce e ogni upload risponde
+# 503 senza niente di evidente nei log.
+
+services:
+  # Il volume nominato nasce di proprietà di root, e RustFS gira come UID 10001:
+  # senza questo passaggio il server parte e muore con "permission denied" su
+  # /data. Un container che sistema i permessi e si spegne costa un secondo al
+  # primo deploy e trasforma un guasto probabile in un non-evento.
+  rustfs-prepare:
+    image: busybox:1.37
+    restart: 'no'
+    command: ['sh', '-c', 'chown -R 10001:10001 /data /logs && echo permessi sistemati']
+    volumes:
+      - plantdaddy-rustfs-data:/data
+      - plantdaddy-rustfs-logs:/logs
+
+  rustfs:
+    # Tag FISSATO e non :latest. Su un release candidate è ancora più importante:
+    # `latest` può cambiare comportamento fra due redeploy senza che tu lo sappia.
+    image: rustfs/rustfs:1.0.0-rc.2
+    restart: unless-stopped
+    depends_on:
+      rustfs-prepare:
+        condition: service_completed_successfully
+    environment:
+      # ATTENZIONE: i default sono rustfsadmin/rustfsadmin. Se queste due non
+      # arrivano — nome sbagliato, variabile vuota in Dokploy — il server parte
+      # comunque con le credenziali di fabbrica. La verifica che siano state prese
+      # è un passaggio obbligatorio della procedura, non un extra: vedi DEPLOY.md.
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+      # Obbligatoria e senza default: è il percorso dei dati dentro il container.
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ':9000'
+      RUSTFS_CONSOLE_ADDRESS: ':9001'
+      # Il protocollo pretende una regione per firmare, anche dove non esistono.
+      RUSTFS_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - plantdaddy-rustfs-data:/data
+      # I log in un volume e non su stdout: così non finiscono nel log del
+      # container, che Docker non ruota per default e che col tempo riempirebbe il
+      # disco della VPS.
+      - plantdaddy-rustfs-logs:/logs
+    networks:
+      dokploy-network:
+        # È QUESTO il nome da mettere in S3_ENDPOINT dell'app:
+        #   S3_ENDPOINT=http://plantdaddy-rustfs:9000
+        # Un alias esplicito e non il nome di servizio `rustfs`, che su una rete
+        # condivisa fra tutti i progetti della macchina è troppo generico.
+        aliases:
+          - plantdaddy-rustfs
+    ports:
+      # La 9000 (API S3) NON è pubblicata: l'app la raggiunge per nome interno, e
+      # pubblicarla metterebbe l'archivio su internet.
+      #
+      # La 9001 (console) è pubblicata SOLO su 127.0.0.1 del VPS. Quel prefisso è
+      # tutta la differenza: ascolta solo sul loopback, quindi da internet la porta
+      # risulta chiusa e nemmeno Traefik la vede. La console si apre con
+      #   ssh -L 9001:127.0.0.1:9001 root@<IP-DEL-VPS>
+      # e poi http://localhost:9001.
+      - '127.0.0.1:9001:9001'
+    # I limiti sono scritti in DUE forme perché `mem_limit`/`cpus` li onora
+    # `docker compose up` e li ignora Swarm, mentre `deploy.resources` fa
+    # l'opposto. Dokploy usa la prima, ma con una sola delle due il limite
+    # sarebbe silenziosamente inefficace se un domani cambiasse — e questi limiti
+    # esistono per impedire a RustFS di mangiarsi la RAM di Postgres.
+    mem_limit: 512m
+    cpus: 0.5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+
+  # Creazione del bucket. SOLO chiamate S3 pure, con la AWS CLI: mc admin non
+  # funziona su RustFS, e in ogni caso una CLI S3 standard rende questo file
+  # riutilizzabile identico su R2 il giorno che servisse.
+  rustfs-init:
+    image: amazon/aws-cli:2.31.9
+    restart: 'no'
+    deploy:
+      restart_policy:
+        condition: none
+    depends_on:
+      - rustfs
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-plantdaddy}
+    networks:
+      - dokploy-network
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        ENDPOINT=http://plantdaddy-rustfs:9000
+
+        # Attesa esplicita: RustFS espone /health/ready senza autenticazione.
+        # 60 tentativi da 2 secondi sono due minuti, abbondanti per un avvio.
+        tentativo=1
+        until curl -fsS "$$ENDPOINT/health/ready" >/dev/null 2>&1; do
+          if [ "$$tentativo" -ge 60 ]; then
+            echo "RustFS non risponde su /health/ready dopo 120s: mi fermo" >&2
+            exit 1
+          fi
+          echo "attendo RustFS ($$tentativo/60)"
+          tentativo=$$((tentativo + 1))
+          sleep 2
+        done
+
+        # head-bucket prima di create-bucket: creare un bucket che esiste già è un
+        # errore, e l'init deve poter girare a ogni deploy senza fallire.
+        if aws --endpoint-url "$$ENDPOINT" s3api head-bucket --bucket "$$S3_BUCKET" 2>/dev/null; then
+          echo "bucket $$S3_BUCKET già presente"
+        else
+          aws --endpoint-url "$$ENDPOINT" s3api create-bucket --bucket "$$S3_BUCKET"
+          echo "bucket $$S3_BUCKET creato"
+        fi
+
+        # PROVA CHE LE CREDENZIALI SIANO STATE PRESE DAVVERO.
+        # Se RUSTFS_ACCESS_KEY non fosse arrivata, il server accetterebbe ancora
+        # rustfsadmin/rustfsadmin e l'archivio delle foto sarebbe aperto a chiunque
+        # conosca i default. Qui si prova ad autenticarsi con quelle: se
+        # FUNZIONANO, l'init fallisce apposta e blocca il deploy.
+        if AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin \
+           aws --endpoint-url "$$ENDPOINT" s3api list-buckets >/dev/null 2>&1; then
+          echo "ERRORE: le credenziali di fabbrica rustfsadmin/rustfsadmin funzionano ancora." >&2
+          echo "RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY non sono state applicate: NON usare questa istanza." >&2
+          exit 1
+        fi
+
+        echo "RustFS pronto: bucket $$S3_BUCKET, credenziali di fabbrica non più valide."
+
+networks:
+  # external: la rete esiste già, la crea Dokploy. Dichiararla qui NON la crea:
+  # se il nome è sbagliato il deploy fallisce subito con "network not found", che è
+  # molto meglio di un deploy riuscito con l'app che non trova l'archivio.
+  dokploy-network:
+    external: true
+
+volumes:
+  plantdaddy-rustfs-data:
+  plantdaddy-rustfs-logs:

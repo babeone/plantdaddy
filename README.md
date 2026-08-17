@@ -47,8 +47,10 @@ ready for Dokploy.
   deliberately hard 12 MP image: 378 KB and 38 KB, 111 MB peak RSS, one image at a
   time behind a single-slot semaphore.
 - **Object storage is swappable**: only relative keys go in the database, never
-  absolute URLs, enforced by a CHECK. Moving from self-hosted MinIO to Cloudflare
-  R2 is an env-var change plus a file copy — no code, no UPDATE on Postgres.
+  absolute URLs, enforced by a CHECK. Storage is RustFS self-hosted; moving to
+  MinIO or Cloudflare R2 is an env-var change plus a file copy — no code, no UPDATE
+  on Postgres. This was not theoretical: the switch from MinIO to RustFS changed
+  zero lines of application code.
   Images are served through the app, so the CSP stays `img-src 'self'` and the
   storage is never exposed to the internet.
 - **Quarterly photo reminder**: when a plant matures a new diary slot, one
@@ -64,6 +66,16 @@ ready for Dokploy.
   quick actions handled by the service worker without opening the app.
 - **Backup**: JSON export and import (merge or replace), because with no account
   a lost code would mean lost data.
+- **Built-in observability**, no extra containers: request latency and errors per
+  SvelteKit route id, rolled up hourly and daily, with a dedicated tab in the admin
+  panel. Charts are hand-written inline SVG — the admin area ships `csr = false`,
+  so a charting library could not run there even if one were added. Measured
+  overhead: **+0.013 ms** on mean request time, **+0.025 ms** on p95; **+2.5 MB**
+  of process RSS under load. Collection is bounded by a fixed-size buffer, a
+  single-flight batched flush, a 3-second flush deadline and a circuit breaker that
+  suspends collection for 5 minutes after three consecutive failures — verified by
+  pointing the app at a dead Postgres port: pages kept serving, the process stayed
+  up, metrics went quiet.
 
 ## Push notifications: what each platform needs
 

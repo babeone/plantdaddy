@@ -10,6 +10,7 @@
 	const TABS = [
 		{ href: '/panoramica', label: 'Panoramica' },
 		{ href: '/utenti', label: 'Utenti' },
+		{ href: '/metriche', label: 'Metriche' },
 		{ href: '/sistema', label: 'Sistema' }
 	];
 

@@ -678,117 +678,112 @@ curl -sD- -o /dev/null -X POST https://<HOST>/superman \
   | grep -i set-cookie
 ```
 
-## 10b. MinIO per le foto delle piante (facoltativo)
+## 10b. RustFS per le foto delle piante (facoltativo)
 
 Senza questa sezione l'app funziona: le API delle foto rispondono **503** con
 "Archivio foto non configurato" e tutto il resto — piante, cure, notifiche,
 pannello — va normalmente. Verificato.
 
-### 10b.1 Perché MinIO non va pubblicato su internet
+> **Da sapere prima di iniziare, senza addolcirlo.** RustFS è a **`1.0.0-rc.2`**,
+> cioè release candidate, e il suo Docker Hub sconsiglia l'uso in produzione. Le
+> foto degli utenti non si rigenerano: il backup verso un bucket esterno
+> (§ 10b.7) qui non è un extra, è la sola rete fra un problema del motore di
+> storage e una perdita definitiva.
+>
+> Inoltre RustFS **non ha CLI né API per creare chiavi con permessi limitati** —
+> è una lacuna aperta a monte ([rustfs/rustfs#1571](https://github.com/rustfs/rustfs/issues/1571)).
+> Con MinIO l'app usava una chiave che poteva solo leggere, scrivere e cancellare
+> oggetti dentro il suo bucket. Qui usa le credenziali principali, che possono
+> anche cancellare il bucket e creare altre chiavi. La probabilità di perderle è
+> identica — stessa variabile d'ambiente — ma le conseguenze sono più ampie.
+> Quando l'issue sarà chiusa si torna a una chiave limitata cambiando due env.
+
+### 10b.1 Perché l'archivio non va pubblicato su internet
 
 Le immagini passano dal **proxy dell'app** (`GET /api/photos/<id>`), non da URL
-firmati. Due ragioni concrete, non estetiche:
+firmati. Due ragioni concrete:
 
 1. La CSP dell'app è `img-src 'self' blob:` senza host esterni. Un URL verso
-   MinIO richiederebbe di allargarla.
-2. Un URL firmato richiede MinIO raggiungibile dal browser, quindi pubblicato
+   l'archivio richiederebbe di allargarla.
+2. Un URL firmato richiede l'archivio raggiungibile dal browser, quindi pubblicato
    attraverso Traefik: una superficie in più esposta per risparmiare banda su
    immagini da 38 KB.
 
-Conseguenza operativa: **nel Compose non c'è nessun `ports:`**. L'app raggiunge
-MinIO come `http://plantdaddy-minio:9000` sulla rete interna di Docker, e il
-browser non vede mai un indirizzo di MinIO.
+Conseguenza: nel compose la **9000 non è pubblicata**. L'app raggiunge RustFS come
+`http://plantdaddy-rustfs:9000` sulla rete interna di Docker.
 
 ### 10b.2 Credenziali
 
-Genera **due** coppie distinte. Le root servono solo all'amministrazione; l'app
-usa una coppia dedicata con permessi sul solo bucket di PlantDaddy, creata
-dall'init container. Se le chiavi dell'app finissero in mano a qualcuno, il danno
-massimo sono queste foto, non l'intero server di storage.
-
 ```bash
-echo "MINIO_ROOT_USER=plantdaddy-root"
-echo "MINIO_ROOT_PASSWORD=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)"
-echo "S3_ACCESS_KEY=plantdaddy-app"
-echo "S3_SECRET_KEY=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)"
+echo "S3_ACCESS_KEY=plantdaddy"; echo "S3_SECRET_KEY=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)"
 ```
+
+Queste due sono **anche le credenziali principali di RustFS**: sono la coppia con
+cui si entra nella console e quella che usa l'app. È la conseguenza della lacuna
+sulle chiavi IAM descritta sopra.
+
+> **I default di RustFS sono `rustfsadmin`/`rustfsadmin`.** Se le variabili non
+> arrivassero — nome sbagliato, campo vuoto in Dokploy — il server partirebbe con
+> le credenziali di fabbrica e l'archivio delle foto sarebbe aperto a chiunque
+> conosca quel valore. Per questo l'init container **prova ad autenticarsi con i
+> default e fa fallire il deploy se funzionano**: è una verifica automatica, non un
+> passaggio da ricordare.
 
 ### 10b.3 Il servizio
 
 Progetto `plantdaddy` → **Create Service** → **Compose**.
 
-| Campo        | Valore                       |
-| ------------ | ---------------------------- |
-| Name         | `plantdaddy-minio`           |
-| Compose Type | Docker Compose               |
-| Compose Path | `./deploy/minio-compose.yml` |
-| Source       | lo stesso repo dell'app      |
+| Campo        | Valore                        |
+| ------------ | ----------------------------- |
+| Name         | `plantdaddy-rustfs`           |
+| Source       | lo stesso repo dell'app       |
+| Compose Path | `./deploy/rustfs-compose.yml` |
 
 Nella scheda **Environment** del servizio Compose:
 
 ```
-MINIO_ROOT_USER=plantdaddy-root
-MINIO_ROOT_PASSWORD=<quella generata sopra>
-S3_ACCESS_KEY=plantdaddy-app
+S3_ACCESS_KEY=plantdaddy
 S3_SECRET_KEY=<quella generata sopra>
 S3_BUCKET=plantdaddy
+S3_REGION=us-east-1
 ```
 
-Il file `deploy/minio-compose.yml` è nel repository e fa quattro cose che vanno
-capite prima di premere Deploy:
+Il file `deploy/rustfs-compose.yml` fa cinque cose che vanno capite prima di
+premere Deploy:
 
-- **volume nominato** `plantdaddy-minio-data`, non un bind mount su un percorso
-  sparso: Docker lo gestisce, sopravvive ai redeploy e si ritrova con
-  `docker volume ls`;
-- **limiti espliciti** di 512 MB e 0,5 vCPU, così MinIO non può affamare Postgres
-  su una macchina da 4 GB;
-- un **init container** che crea il bucket **privato** e l'utente applicativo con
-  una policy limitata a quel bucket e alle sole operazioni che l'app usa —
-  `GetObject`, `PutObject`, `DeleteObject`, `ListBucket`. Niente amministrazione,
-  niente altri bucket.
+- **volumi nominati** per dati e log, che sopravvivono ai redeploy;
+- un container `rustfs-prepare` che **sistema i permessi** dei volumi prima
+  dell'avvio. RustFS gira come UID 10001 e un volume nominato nasce di proprietà
+  di root: senza questo passaggio il server parte e muore con `permission denied`
+  su `/data`. Costa un secondo al primo deploy e trasforma un guasto probabile in
+  un non-evento;
+- **limiti espliciti** di 512 MB e 0,5 vCPU, in entrambe le forme (`mem_limit` per
+  compose standalone, `deploy.resources` per Swarm) perché con una sola il limite
+  sarebbe silenziosamente inefficace nella modalità sbagliata — ed è il campo che
+  impedisce a RustFS di mangiarsi la RAM di Postgres;
+- un init che **crea il bucket** e **verifica che le credenziali di fabbrica non
+  funzionino più**;
+- i **log in un volume** e non su stdout, perché il driver json-file di Docker non
+  ruota i log per default e col tempo riempirebbe il disco.
 
-- l'init **aspetta MinIO con un ciclo**, non con `depends_on`.
+L'init usa la **AWS CLI** e solo chiamate S3 pure. Non `mc`: RustFS espone
+`/rustfs/admin/v3/` mentre `mc admin` parla a `/minio/admin/v3/`, quindi i comandi
+amministrativi non funzionano. Le operazioni S3 sì, su entrambi — ed è anche il
+motivo per cui questo init resta valido identico su R2.
 
-Le ultime due righe meritano una spiegazione, perché sono il punto in cui questo
-compose si comporta diversamente dalla maggior parte degli esempi in giro.
+Il tag dell'immagine è **fissato**, non `:latest`. Su un release candidate conta il
+doppio: `latest` può cambiare comportamento fra due redeploy senza avvisare.
 
-**In Dokploy convivono due modalità.** Application e Database sono service
-**Swarm** (`docker service ls` li elenca). I servizi **Compose** invece vengono
-lanciati con `docker compose up` standalone — lo si legge nel log del deploy:
+### 10b.4 La rete: è qui che si sbaglia
 
-```
-Compose Type: docker-compose ✅
-Command: docker compose -p plantdaddy-minio-zwulcd -f ./deploy/minio-compose.yml up -d
-```
+`docker compose up` crea una **rete propria del progetto** e ci mette dentro i suoi
+container. L'app invece è un service Swarm su `dokploy-network`: due mondi che per
+default **non si vedono**. Il deploy riesce, RustFS parte, e ogni upload risponde
+503 "Archivio non raggiungibile" senza niente di evidente nei log.
 
-Le due modalità onorano campi diversi:
-
-| Campo                         | `docker compose up` | Swarm        |
-| ----------------------------- | ------------------- | ------------ |
-| `mem_limit` / `cpus`          | onorato             | ignorato     |
-| `deploy.resources.limits`     | ignorato            | onorato      |
-| `restart:`                    | onorato             | ignorato     |
-| `deploy.restart_policy`       | ignorato            | onorato      |
-| `depends_on: service_healthy` | onorato             | **ignorato** |
-
-Il file scrive **entrambe** le forme dei limiti e della restart policy, e ha
-l'attesa di MinIO sia con `depends_on` sia con un ciclo nel comando dell'init.
-Con la modalità compose che usa Dokploy oggi bastano le prime; le seconde servono
-se un domani Dokploy cambiasse, o se qualcuno prendesse questo file per un
-`docker stack deploy`. Ciascuna forma viene ignorata senza errori dalla modalità
-che non la usa.
-
-### La rete: è qui che si sbaglia
-
-`docker compose up` crea una **rete propria del progetto** e ci mette dentro i
-suoi container. L'app invece è un service Swarm su `dokploy-network`: due mondi
-che per default **non si vedono**. Il deploy riesce, MinIO parte, e ogni upload
-risponde 503 "Archivio non raggiungibile" senza niente di evidente nei log.
-
-Per questo il compose dichiara `dokploy-network` come `external` e attacca MinIO
-con un **alias esplicito**, `plantdaddy-minio`. L'alias e non il nome di servizio
-`minio` perché la rete è condivisa fra tutti i progetti della macchina, e `minio`
-è un nome che un altro progetto potrebbe già usare.
+Per questo il compose dichiara `dokploy-network` come `external` e attacca RustFS
+con un **alias esplicito**, `plantdaddy-rustfs`. L'alias e non il nome di servizio
+`rustfs` perché la rete è condivisa fra tutti i progetti della macchina.
 
 Da verificare una volta sola, prima del primo deploy:
 
@@ -800,41 +795,37 @@ Se il nome non è esattamente `dokploy-network`, va corretto nel compose. Con il
 nome sbagliato il deploy **fallisce subito** con `network ... not found`, che è
 molto meglio di un deploy riuscito e un'app che non trova l'archivio.
 
-Il tag dell'immagine è **fissato**, non `:latest`: un aggiornamento involontario
-del server di storage è l'ultima cosa da scoprire da un redeploy.
+### 10b.5 Variabili nell'applicazione
 
-### 10b.4 Variabili nell'applicazione
+In `plantdaddy-app` → **Environment**:
 
-In `plantdaddy-app` → **Environment**, aggiungi:
-
-| Variabile               | Valore                         | Note                                                                               |
-| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
-| `S3_ENDPOINT`           | `http://plantdaddy-minio:9000` | **nome del service**, come per il database: vedi § 3 sul suffisso casuale di Swarm |
-| `S3_BUCKET`             | `plantdaddy`                   |                                                                                    |
-| `S3_ACCESS_KEY`         | `plantdaddy-app`               | la coppia dedicata, **non** le root                                                |
-| `S3_SECRET_KEY`         | `<segreto>`                    |                                                                                    |
-| `S3_REGION`             | `us-east-1`                    | MinIO non ha regioni, ma il protocollo pretende un valore per firmare              |
-| `PHOTO_UPLOADS_PER_DAY` | `10`                           | limita il churn di chi cancella e ricarica                                         |
+| Variabile               | Valore                          | Note                                         |
+| ----------------------- | ------------------------------- | -------------------------------------------- |
+| `S3_ENDPOINT`           | `http://plantdaddy-rustfs:9000` | l'**alias di rete** del compose              |
+| `S3_BUCKET`             | `plantdaddy`                    |                                              |
+| `S3_ACCESS_KEY`         | `plantdaddy`                    | le stesse del servizio Compose               |
+| `S3_SECRET_KEY`         | `<segreto>`                     |                                              |
+| `S3_REGION`             | `us-east-1`                     | il protocollo pretende un valore per firmare |
+| `PHOTO_UPLOADS_PER_DAY` | `10`                            | limita il churn di chi cancella e ricarica   |
 
 > **`S3_ENDPOINT` non segue la regola del § 3.** Il database è un service Swarm e
-> ha il suffisso casuale (`plantdaddy-plantdaddydb-ib0ewe`); MinIO è un servizio
+> ha il suffisso casuale (`plantdaddy-plantdaddydb-ib0ewe`); RustFS è un servizio
 > Compose, quindi `docker service ls` **non lo elenca affatto** e il nome che
-> Dokploy mostra (`plantdaddy-minio-zwulcd`) è quello del progetto compose, non un
-> nome DNS. L'indirizzo raggiungibile è l'alias dichiarato nel file:
-> **`plantdaddy-minio`**, stabile per costruzione e senza suffissi da leggere.
+> Dokploy mostra è quello del progetto compose, non un nome DNS. L'indirizzo
+> raggiungibile è l'alias dichiarato nel file: **`plantdaddy-rustfs`**, stabile per
+> costruzione.
 >
 > Per convincersene dopo il deploy, dal container dell'app:
 >
 > ```bash
 > docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-app | head -1) \
->   node -e "fetch('http://plantdaddy-minio:9000/minio/health/live').then(r=>console.log('MinIO risponde:',r.status)).catch(e=>console.log('NON raggiungibile:',e.message))"
+>   node -e "fetch('http://plantdaddy-rustfs:9000/health/ready').then(r=>console.log('RustFS risponde:',r.status)).catch(e=>console.log('NON raggiungibile:',e.message))"
 > ```
 
 `BODY_SIZE_LIMIT` è già a `20M` nel Dockerfile: serve ai 15 MB di una foto, ed è
-**globale** per adapter-node, quindi alza anche il tetto di `/api/import`. Il
-limite per-rotta lo impone il codice, contando i byte durante la lettura.
+**globale** per adapter-node, quindi alza anche il tetto di `/api/import`.
 
-### 10b.5 I due Schedule
+### 10b.6 I due Schedule
 
 Progetto `plantdaddy` → **Schedules**, oltre a quello delle notifiche di § 8:
 
@@ -843,32 +834,28 @@ Progetto `plantdaddy` → **Schedules**, oltre a quello delle notifiche di § 8:
 | Promemoria foto | `0 * * * *`  | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://plantdaddy-app:3000/api/cron/photo-reminders` |
 | Pulizia orfani  | `30 4 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://plantdaddy-app:3000/api/cron/photo-cleanup`   |
 
-I promemoria girano **ogni ora** e non una volta al giorno perché `notify_hour` è
-per utente: la query serve solo chi ha scelto quell'ora, stretta alla fascia
-10–20. Ogni utente riceve al massimo **una** notifica foto al giorno, aggregata
-se più piante maturano insieme.
+I promemoria girano **ogni ora** perché `notify_hour` è per utente: la query serve
+solo chi ha scelto quell'ora, stretta alla fascia 10–20. Ogni utente riceve al
+massimo **una** notifica foto al giorno, aggregata se più piante maturano insieme.
 
-La pulizia gira **una volta al giorno**, di notte. Con `?dry-run` dice cosa
-cancellerebbe senza toccare niente:
+Con `?dry-run` la pulizia dice cosa cancellerebbe senza toccare niente:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $CRON_SECRET" "http://plantdaddy-app:3000/api/cron/photo-cleanup?dry-run"
 ```
 
-### 10b.6 La console di amministrazione
+### 10b.7 La console di amministrazione
 
-**Non esporla a internet.** Il compose pubblica la 9001 **solo su 127.0.0.1 del
-VPS**:
+Il compose pubblica la console **solo su 127.0.0.1 del VPS**:
 
 ```yaml
 ports:
   - '127.0.0.1:9001:9001'
 ```
 
-Quel prefisso è tutta la differenza. `127.0.0.1:9001:9001` ascolta solo
-sull'interfaccia di loopback della macchina: da internet la porta risulta chiusa e
-nemmeno Traefik la vede. `9001:9001` senza prefisso la esporrebbe al mondo. La
-9000 invece non è pubblicata affatto, e non deve esserlo.
+Quel prefisso è tutta la differenza. `127.0.0.1:9001:9001` ascolta solo sul
+loopback: da internet la porta risulta chiusa e nemmeno Traefik la vede.
+`9001:9001` senza prefisso la esporrebbe al mondo.
 
 Il tunnel giusto è verso **127.0.0.1**, non verso il nome del container:
 
@@ -876,65 +863,46 @@ Il tunnel giusto è verso **127.0.0.1**, non verso il nome del container:
 ssh -L 9001:127.0.0.1:9001 root@<IP-DEL-VPS>
 ```
 
-Poi `http://localhost:9001` nel browser, credenziali root.
+Poi `http://localhost:9001` nel browser, con `S3_ACCESS_KEY` e `S3_SECRET_KEY`.
 
-> **`ssh -L 9001:plantdaddy-minio:9001` NON funziona**, ed è un errore facile da
-> fare. In `-L porta:host:porta` quell'`host` viene risolto **dal VPS**, e
-> `plantdaddy-minio` è un alias del DNS interno di Docker: esiste solo dentro la
-> rete dei container, l'host non lo conosce. Il tunnel si apre e poi fallisce alla
-> prima connessione. Per convincersene:
+> **`ssh -L 9001:plantdaddy-rustfs:9001` NON funziona.** In `-L porta:host:porta`
+> quell'`host` viene risolto **dal VPS**, e `plantdaddy-rustfs` è un alias del DNS
+> interno di Docker: esiste solo dentro la rete dei container. Il tunnel si apre e
+> poi fallisce alla prima connessione. Per convincersene:
 >
 > ```bash
-> ssh root@<IP-DEL-VPS> 'getent hosts plantdaddy-minio || echo "l'"'"'host non risolve questo nome"'
+> ssh root@<IP-DEL-VPS> 'getent hosts plantdaddy-rustfs || echo "l'"'"'host non risolve questo nome"'
 > ```
 
-Finito il tunnel la console torna irraggiungibile. Nessun certificato da gestire,
-nessuna pagina di login su internet, nessun bruteforce possibile.
-
-### Alternativa senza pubblicare nulla: `mc` da un container usa-e-getta
-
-Se preferisci non avere nemmeno il listener su loopback, togli la riga `ports:` e
-usa la riga di comando. Copre tutto quello che serve davvero — elenco, spazio
-occupato, utenti, policy — e non apre niente:
-
-```bash
-docker run --rm -it --network dokploy-network \
-  -e MC_HOST_locale="http://<S3_ACCESS_KEY>:<S3_SECRET_KEY>@plantdaddy-minio:9000" \
-  quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z sh
-```
-
-Dentro: `mc ls locale/plantdaddy`, `mc du locale/plantdaddy`, `mc admin info locale`.
-
-### 10b.7 Backup delle foto — questo sì che serve
+### 10b.8 Backup delle foto — questo sì che serve
 
 Il database non è sotto backup per scelta (§ 11), e le foto sono un caso
 **diverso**: uno storico di annaffiature si può ricostruire a memoria, una foto di
-due anni fa no. Se il disco muore senza una copia altrove, quelle immagini sono
-perse per sempre.
+due anni fa no. Con un motore di storage a release candidate, ancora di più.
 
-`deploy/backup-minio.sh` fa un `mc mirror` incrementale verso un bucket esterno.
-Come destinazione conviene **Cloudflare R2**: l'egress è gratuito, quindi il
-giorno del ripristino — l'unico in cui scarichi tutto — non arriva una bolletta.
+`deploy/backup-foto.sh` fa un `mc mirror` incrementale verso un bucket esterno.
+Come destinazione conviene **Cloudflare R2**: l'egress è gratuito, quindi il giorno
+del ripristino — l'unico in cui scarichi tutto — non arriva una bolletta.
+
+`mc` va bene qui anche con RustFS: `mirror`, `ls` e `du` sono operazioni S3, non
+comandi amministrativi.
 
 Da mettere come Schedule giornaliero, con queste variabili:
 
 ```
-SRC_KEY / SRC_SECRET      le chiavi applicative di MinIO
+SRC_KEY / SRC_SECRET      le credenziali di RustFS
 DST_ENDPOINT              https://<account-id>.r2.cloudflarestorage.com
 DST_BUCKET                plantdaddy-foto
 DST_KEY / DST_SECRET      un token R2 con accesso a quel solo bucket
 ```
 
 Lo script usa `--remove`, quindi propaga anche le cancellazioni e il backup non
-cresce per sempre. Togliendo quel flag diventa un archivio storico: scelta
-diversa, e più costosa.
+cresce per sempre. E provalo davvero, ripristinando qualche file su un bucket
+temporaneo: un backup non verificato non è un backup.
 
-E provalo davvero, ripristinando qualche file su un bucket temporaneo. Un backup
-non verificato non è un backup.
+### 10b.9 Quanto spazio stanno occupando
 
-### 10b.8 Quanto spazio stanno occupando
-
-Le dimensioni sono nel database, quindi si leggono senza interrogare MinIO:
+Le dimensioni sono nel database, quindi si leggono senza interrogare l'archivio:
 
 ```sql
 select
@@ -944,21 +912,218 @@ select
 from plant_photos;
 ```
 
-Il tetto è calcolabile e non cresce a sorpresa: **100 piante per utente**, un
-avatar più `1 + trimestri` slot ciascuna. Un utente con 100 piante da due anni sta
-sotto i 400 MB. Il pannello di controllo (§ 10) mostra la dimensione del database;
-per il disco della macchina:
+Il tetto è calcolabile: **100 piante per utente**, un avatar più `1 + trimestri`
+slot ciascuna. Un utente con 100 piante da due anni sta sotto i 400 MB. Per il
+disco della macchina:
 
 ```bash
-docker system df -v | grep plantdaddy-minio-data
+docker system df -v | grep plantdaddy-rustfs
 df -h /
 ```
 
-Quando il disco si avvicina alla saturazione MinIO comincia a rifiutare le
-scritture e gli upload rispondono 503 con un messaggio chiaro, mentre l'app
-continua a funzionare — le pagine si caricano e le foto già presenti si vedono.
-Non è una situazione a cui arrivare: 40 GB su questa VPS sono condivisi con
-Postgres e con le immagini Docker.
+Quando il disco si avvicina alla saturazione gli upload rispondono 503 con un
+messaggio chiaro, mentre l'app continua a funzionare — le pagine si caricano e le
+foto già presenti si vedono.
+
+---
+
+## 10c. Migrare da MinIO a RustFS, e togliere MinIO
+
+> **L'ORDINE DI QUESTI PASSAGGI NON È NEGOZIABILE.** Il passo 6 cancella dati in
+> modo irreversibile. Non anticiparlo: finché non hai verificato che le foto si
+> vedono servite da RustFS, MinIO è l'unica copia che hai.
+
+### 1. RustFS accanto a MinIO
+
+Deploya il servizio Compose di § 10b.3 **senza toccare MinIO**. Per un momento
+girano entrambi: due archivi, due alias di rete distinti, nessun conflitto.
+
+### 2. Copia i file
+
+Da una shell del VPS, con `<SEGRETO-MINIO>` e `<SEGRETO-RUSTFS>` al posto giusto:
+
+```bash
+docker run --rm --network dokploy-network --entrypoint sh \
+  quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z -c '
+    mc alias set vecchio http://plantdaddy-minio:9000 plantdaddy-app "<SEGRETO-MINIO>" &&
+    mc alias set nuovo  http://plantdaddy-rustfs:9000 plantdaddy   "<SEGRETO-RUSTFS>" &&
+    mc mirror --overwrite vecchio/plantdaddy nuovo/plantdaddy &&
+    echo "--- conteggi ---" &&
+    echo "vecchio: $(mc ls --recursive vecchio/plantdaddy | wc -l)" &&
+    echo "nuovo:   $(mc ls --recursive nuovo/plantdaddy   | wc -l)"'
+```
+
+**I due conteggi devono coincidere.** Se non coincidono, fermati qui e non
+proseguire: rilancia il mirror.
+
+Nota che **non** c'è `--remove`: è una copia, non una sincronizzazione. Se qualcosa
+va storto, MinIO è ancora intatto.
+
+### 3. Cambia l'endpoint dell'app
+
+`plantdaddy-app` → Environment → `S3_ENDPOINT=http://plantdaddy-rustfs:9000`
+(più `S3_ACCESS_KEY` e `S3_SECRET_KEY` di RustFS). Poi **Redeploy**.
+
+### 4. Verifica dall'app, non dai log
+
+Apri l'app e controlla tre cose:
+
+- una foto **già esistente** si vede — significa che la copia ha funzionato;
+- **carichi una foto nuova** e appare — significa che la scrittura funziona;
+- **cancelli** quella foto di prova e sparisce.
+
+Poi che il conteggio del database e quello dell'archivio combacino:
+
+```bash
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" \
+  "http://plantdaddy-app:3000/api/cron/photo-cleanup?dry-run"
+```
+
+`chiavi_nel_bucket` e `chiavi_nel_database` devono corrispondere e
+`orfani_trovati` deve essere **0**. Se ci fossero orfani, qualcosa nella copia non
+è andato: **non** far girare la pulizia vera, indaga prima.
+
+### 5. Lascia passare qualche giorno
+
+Non c'è fretta di cancellare. MinIO fermo non consuma CPU e occupa solo disco, e
+tenerlo qualche giorno è l'unico modo di accorgersi di un problema che si manifesta
+dopo. Per intanto fermalo senza distruggere niente:
+
+Dokploy → `plantdaddy-minio` → **Stop**.
+
+Se qualcosa non torna, si riparte cambiando `S3_ENDPOINT` all'indietro.
+
+### 6. Rimozione definitiva — questo cancella le foto da MinIO
+
+Solo quando il passo 4 è verificato e sono passati alcuni giorni.
+
+**a. Il servizio.** Dokploy → progetto `plantdaddy` → `plantdaddy-minio` →
+**Delete**. Questo rimuove i container ma **non** il volume: i dati sono ancora lì.
+
+**b. Il volume.** È il passaggio irreversibile. Prima guarda cosa stai per
+cancellare:
+
+```bash
+docker volume ls | grep -i minio
+```
+
+Il nome sarà tipo `plantdaddy-minio-zwulcd_plantdaddy-minio-data` — il prefisso è
+il nome del progetto compose. Controlla quanto pesa e che sia davvero quello:
+
+```bash
+docker system df -v | grep -i minio
+```
+
+E solo allora:
+
+```bash
+docker volume rm <NOME-ESATTO-DEL-VOLUME>
+```
+
+Se risponde `volume is in use`, un container esiste ancora: non forzare con
+`docker rm -f` alla cieca, trova chi lo usa con `docker ps -a --filter volume=<NOME>`.
+
+**c. Le immagini.** Recuperano qualche centinaio di MB di disco:
+
+```bash
+docker rmi quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+docker rmi quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+```
+
+Tieni `mc` se usi `deploy/backup-foto.sh`, che se ne serve.
+
+**d. Le variabili.** In Dokploy non resta niente da togliere se hai cancellato il
+servizio Compose: le sue env vanno via con lui. Controlla solo che
+`plantdaddy-app` non abbia più `S3_ENDPOINT` che punta a `plantdaddy-minio`.
+
+### Se qualcosa va storto dopo il passo 6
+
+Non c'è ritorno da MinIO: il volume non esiste più. L'unica copia è il backup
+esterno di § 10b.8 — che è il motivo per cui quella sezione esiste e per cui vale
+la pena farlo girare **prima** di questa migrazione, non dopo.
+
+## 10d. Metriche e query lente
+
+### 10d.1 Lo Schedule del rollup
+
+Progetto `plantdaddy` → **Schedules**:
+
+| Task            | Schedule    | Command                                                                                                |
+| --------------- | ----------- | ------------------------------------------------------------------------------------------------------ |
+| Rollup metriche | `5 * * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://plantdaddy-app:3000/api/cron/metrics-rollup` |
+
+Al minuto 5 e non allo scoccare dell'ora: gli altri due job girano al minuto 0 e
+30, e non c'è motivo di farli competere per le stesse due vCPU.
+
+Il job aggrega, campiona l'occupazione e ripulisce, in quest'ordine. È idempotente:
+rieseguirlo ricalcola invece di duplicare, verificato — 240 righe orarie prima e
+240 dopo un secondo giro.
+
+Se lo Schedule non c'è, la raccolta funziona comunque ma **niente viene mai
+aggregato né cancellato**: la tabella grezza cresce fino al tetto di
+`METRICS_MAX_RAW_ROWS` e poi si auto-pota in modo aggressivo. La dashboard alla
+scheda Metriche mostra l'ultima esecuzione di ogni job, quindi il problema si vede.
+
+### 10d.2 Quanto occupa, misurato
+
+A 70.000 righe grezze — sette giorni a 10.000 richieste al giorno — misurato su
+Postgres reale:
+
+|                                            |                               |
+| ------------------------------------------ | ----------------------------- |
+| heap della tabella grezza                  | 5,4 MB                        |
+| indice `request_metrics_pkey`              | 1,5 MB                        |
+| indice `request_metrics_created_idx`       | 2,7 MB                        |
+| indice `request_metrics_route_created_idx` | 5,2 MB                        |
+| **totale grezza**                          | **15 MB** (219 byte per riga) |
+| rollup orario, 240 righe                   | 88 kB                         |
+| rollup giornaliero, 120 righe              | 64 kB                         |
+
+Estrapolando la retention completa: grezzi 15 MB, orari 90 giorni circa 10 MB,
+giornalieri 12 mesi circa 2 MB. **Sotto i 30 MB a regime.**
+
+> Il primo calcolo che avevo fatto diceva 84 byte per riga e ~10 MB: era
+> sbagliato di 2,6 volte perché non contava l'indice della chiave primaria e
+> sottostimava quello su `(route, created_at)`, che porta con sé il testo della
+> rotta. I numeri qui sopra sono misurati, non stimati.
+
+Il tetto di `METRICS_MAX_RAW_ROWS=2000000` corrisponde quindi a circa **420 MB**.
+Su 40 GB condivisi con Postgres e le foto è accettabile come limite estremo, ma se
+vuoi stare più stretto abbassa quel valore: è il solo parametro che governa il caso
+peggiore.
+
+### 10d.3 Query Postgres lente, senza riavviare il database
+
+```bash
+docker exec -it $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb | head -1) \
+  psql -U plantdaddy -d plantdaddy -c "alter system set log_min_duration_statement = '500ms'" \
+  -c "select pg_reload_conf()"
+```
+
+**Nessun riavvio**: `log_min_duration_statement` è modificabile a caldo e
+`pg_reload_conf()` basta. Si spegne allo stesso modo con `= -1`.
+
+Costo in risorse: praticamente nullo in CPU — Postgres misura già la durata di ogni
+statement, questo decide solo se stamparla. Su un'app personale a 500 ms sono una
+manciata di righe al giorno.
+
+> **L'unica accortezza vera è la rotazione dei log.** Il driver `json-file` di
+> Docker non ruota per default: un log che cresce senza limite è esattamente il
+> "logging verboso che riempie il disco" da evitare. Nel servizio del database, in
+> Dokploy → Advanced, imposta il logging con `max-size: 10m` e `max-file: 3`.
+> Senza quello, non attivare il logging delle query.
+
+Per leggere cosa esce:
+
+```bash
+docker logs --tail 200 $(docker ps --format '{{.Names}}' | grep plantdaddy-plantdaddydb | head -1) 2>&1 | grep -i duration
+```
+
+**`pg_stat_statements` NON è stato attivato**, di proposito: darebbe l'aggregato per
+query normalizzata, che è più utile di righe sparse, ma richiede
+`shared_preload_libraries` e quindi un **riavvio del container Postgres**, cioè
+downtime del database. Il momento per farlo è quando i log mostrano che c'è
+davvero qualcosa da aggregare — non prima.
 
 ---
 

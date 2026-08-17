@@ -6,11 +6,11 @@ import { getObjectStream, storageConfigured } from './storage';
  * Il proxy delle immagini.
  *
  * PERCHÉ UN PROXY E NON UN PRESIGNED URL. La CSP dell'app è `img-src 'self' blob:`
- * senza host esterni (vite.config.ts). Un URL firmato verso MinIO richiederebbe di
- * allargare quella direttiva e di pubblicare MinIO su internet attraverso Traefik:
- * due indebolimenti reali per risparmiare banda su immagini da 38 KB. Passando da
- * qui, MinIO resta raggiungibile solo dalla rete interna di Docker e il browser
- * vede solo la nostra origine.
+ * senza host esterni (vite.config.ts). Un URL firmato verso l'archivio
+ * richiederebbe di allargare quella direttiva e di pubblicarlo su internet
+ * attraverso Traefik: due indebolimenti reali per risparmiare banda su immagini da
+ * 38 KB. Passando da qui, l'archivio resta raggiungibile solo dalla rete interna
+ * di Docker e il browser vede solo la nostra origine.
  *
  * Il costo è banda e CPU del processo Node, e si paga UNA VOLTA per immagine: le
  * chiavi contengono un uuid e il contenuto non cambia mai, quindi la risposta è
@@ -67,7 +67,7 @@ export async function serviFoto(
 	} catch (err) {
 		// Archivio spento o oggetto sparito: 503 e non 500. La UI mette un
 		// segnaposto e il resto della pagina continua a funzionare, che è
-		// esattamente il comportamento richiesto quando MinIO è giù.
+		// esattamente il comportamento richiesto quando l'archivio è giù.
 		console.error('[foto] lettura da storage fallita', key, err);
 		error(503, 'Archivio foto non raggiungibile');
 	}

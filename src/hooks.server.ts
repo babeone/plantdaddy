@@ -1,7 +1,64 @@
-import type { Handle, HandleServerError } from '@sveltejs/kit';
+import type { Handle, HandleServerError, RequestEvent } from '@sveltejs/kit';
 import { ADMIN_INTERNAL_BASE } from '$lib/admin-path';
 import { hashToken } from '$lib/server/auth';
 import { adminHeaders } from '$lib/server/admin/guard';
+import { avvia, push } from '$lib/server/metrics/buffer';
+import {
+	alwaysAboveMs,
+	metricsEnabled,
+	routeEsclusa,
+	sampleRate
+} from '$lib/server/metrics/config';
+
+// Il flush periodico e il flush allo SIGTERM si registrano una volta, all'import
+// del modulo degli hook: è il punto che SvelteKit carica per primo e una volta sola.
+avvia();
+
+/**
+ * Registrazione di una richiesta nel buffer delle metriche.
+ *
+ * FIRE AND FORGET, letteralmente: questa funzione non è `await`-ata e non fa I/O.
+ * Mette un oggetto in un array e torna. La scrittura sul database la fa il flusher
+ * in batch, quindi la response al client non aspetta niente — è il requisito per
+ * cui l'overhead resta sotto il millisecondo.
+ *
+ * ORDINE DEI CONTROLLI, dal più economico al più costoso: interruttore generale,
+ * esclusione per rotta, poi il campionamento. Con METRICS_ENABLED=false si esce
+ * alla prima riga e non si valuta nient'altro.
+ */
+function registraRichiesta(event: RequestEvent, status: number, durata: number): void {
+	if (!metricsEnabled()) return;
+
+	const route = event.route.id;
+	if (routeEsclusa(route)) return;
+
+	const ms = Math.round(durata);
+
+	/*
+	 * IL CAMPIONAMENTO NON TOCCA 5xx E RICHIESTE LENTE.
+	 *
+	 * Sono gli unici dati per cui questa dashboard esiste. Campionare al 10% un
+	 * errore che accade tre volte al giorno significa vederlo una volta ogni tre
+	 * giorni, cioè non vederlo. Il volume non è un problema: per definizione questi
+	 * eventi sono rari, e se diventassero frequenti sarebbe proprio il momento di
+	 * averli tutti.
+	 */
+	const sempre = status >= 500 || ms >= alwaysAboveMs();
+	if (!sempre) {
+		const rate = sampleRate();
+		if (rate <= 0) return;
+		if (rate < 1 && Math.random() >= rate) return;
+	}
+
+	push({
+		route: route as string,
+		method: event.request.method,
+		status,
+		duration_ms: ms,
+		// Solo un booleano: chi è l'utente non entra in questa tabella.
+		authed: event.locals.userTokenHash !== null
+	});
+}
 
 /**
  * Risoluzione della sessione.
@@ -23,7 +80,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.request.headers.get('x-session-token')?.trim();
 	event.locals.userTokenHash = token ? hashToken(token) : null;
 
+	// Fuori dall'if: due letture di performance.now() costano nanosecondi, e
+	// metterla dentro un ramo condizionale significherebbe non poter misurare la
+	// richiesta se il flag cambia a metà.
+	const inizio = performance.now();
+
 	const response = await resolve(event);
+
+	registraRichiesta(event, response.status, performance.now() - inizio);
 
 	// Header del pannello applicati QUI e non nei singoli load: così coprono
 	// anche le POST delle form action, i redirect e l'immagine del QR, cioè

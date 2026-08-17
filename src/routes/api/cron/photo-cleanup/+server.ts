@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { sql } from '$lib/server/db';
 import { secretMatches } from '$lib/server/notify';
+import { registraRun } from '$lib/server/metrics/jobs';
 import { LOCK_PULIZIA_FOTO } from '$lib/server/photos/reminders';
 import { deleteObjects, listKeys, storageConfigured } from '$lib/server/photos/storage';
 
@@ -33,6 +34,7 @@ const MAX_CANCELLAZIONI = 500;
 const GRAZIA_MS = 5 * 60 * 1000;
 
 export const GET: RequestHandler = async ({ request, url }) => {
+	const inizioRun = Date.now();
 	// Autorizzazione prima di ogni query e prima di parlare con l'archivio.
 	const expected = env.CRON_SECRET;
 	if (!expected) error(503, 'CRON_SECRET non configurato');
@@ -87,7 +89,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	// FINESTRA DI GRAZIA. Un upload in corso ha già scritto i file ma non ancora la
 	// riga: senza questo filtro il job glieli cancellerebbe sotto, e l'utente si
 	// ritroverebbe una foto rotta appena caricata. Un oggetto senza data si
-	// considera vecchio, perché MinIO la restituisce sempre e la sua assenza
+	// considera vecchio, perché un server S3 la restituisce sempre e la sua assenza
 	// indicherebbe un elenco anomalo, non un file appena creato.
 	const soglia = Date.now() - GRAZIA_MS;
 	const candidati = nelBucket.filter(
@@ -117,5 +119,6 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		log_upload_potati: potati
 	};
 	console.log('[cron/photo-cleanup]', JSON.stringify(esito));
+	await registraRun('photo-cleanup', inizioRun, { ok: true, detail: esito });
 	return json(esito);
 };

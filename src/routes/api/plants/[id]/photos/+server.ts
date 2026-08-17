@@ -15,7 +15,7 @@ type FotoGalleria = {
 /**
  * Elenco del diario di crescita, più lo stato degli slot.
  *
- * NON tocca MinIO: legge solo Postgres. È voluto — con l'archivio spento la pagina
+ * NON tocca l'archivio: legge solo Postgres. È voluto — con l'archivio spento la pagina
  * deve caricarsi comunque, e sono le singole immagini a mostrare un segnaposto,
  * non la schermata a rompersi.
  *

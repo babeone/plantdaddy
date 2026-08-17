@@ -8,11 +8,11 @@
 	 * FALLBACK: se l'avatar è una foto ma l'oggetto non arriva — archivio spento,
 	 * file sparito, rete che cade — l'`onerror` dell'img fa comparire l'emoji al
 	 * suo posto. La UI non si rompe e non lascia un rettangolo vuoto: è il
-	 * comportamento richiesto quando MinIO è giù.
+	 * comportamento richiesto quando l'archivio è giù.
 	 *
 	 * L'URL è sempre della NOSTRA origine (`/api/plants/<id>/avatar/...`), quindi
 	 * passa la CSP `img-src 'self'` senza bisogno di allargarla. Nessun URL di
-	 * MinIO arriva mai al browser.
+	 * dell'archivio arriva mai al browser.
 	 */
 	let {
 		plant,

@@ -1,6 +1,10 @@
 #!/bin/sh
 # Backup delle foto verso un bucket esterno (Cloudflare R2, o qualunque S3).
 #
+# CON RUSTFS QUESTO NON È UN EXTRA. RustFS è a 1.0.0-rc.2 e il suo Docker Hub
+# sconsiglia l'uso in produzione: una copia altrove è la sola cosa che sta fra un
+# problema del motore di storage e la perdita definitiva delle foto.
+#
 # PERCHÉ SERVE, e perché non è come il backup del database: le foto NON si
 # rigenerano. Uno storico di annaffiature perso si può ricostruire a mano, una
 # foto di due anni fa no. Se il disco della VPS muore senza una copia altrove,
@@ -15,15 +19,19 @@
 # trasforma il backup in un archivio storico, che è una scelta diversa e più cara.
 #
 # USO, dalla shell del VPS:
-#   MC="docker run --rm --network dokploy-network \
-#     -e SRC_KEY -e SRC_SECRET -e DST_KEY -e DST_SECRET \
-#     quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z"
-#   ...oppure si copia questo script dentro un container mc e si lancia.
+#   docker run --rm --network dokploy-network \
+#     -e SRC_KEY -e SRC_SECRET -e DST_KEY -e DST_SECRET -e DST_ENDPOINT -e DST_BUCKET \
+#     -v "$PWD/deploy/backup-foto.sh:/backup.sh" \
+#     --entrypoint sh quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z /backup.sh
+#
+# `mc` va bene qui anche con RustFS: mirror, ls e du sono operazioni S3, non
+# comandi amministrativi. È `mc admin` a non funzionare, perché RustFS espone
+# /rustfs/admin/v3/ mentre mc parla a /minio/admin/v3/.
 #
 # In Dokploy: Schedules -> nuovo job, una volta al giorno, Shell = sh.
 set -e
 
-: "${SRC_ALIAS_URL:=http://plantdaddy-minio:9000}"
+: "${SRC_ALIAS_URL:=http://plantdaddy-rustfs:9000}"
 : "${SRC_BUCKET:=plantdaddy}"
 : "${DST_BUCKET:?DST_BUCKET non impostata}"
 : "${DST_ENDPOINT:?DST_ENDPOINT non impostata (es. https://<account>.r2.cloudflarestorage.com)}"

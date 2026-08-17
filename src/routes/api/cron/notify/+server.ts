@@ -14,6 +14,7 @@ import {
 	secretMatches,
 	type DuePlant
 } from '$lib/server/notify';
+import { registraRun } from '$lib/server/metrics/jobs';
 
 /**
  * Invio del riepilogo giornaliero. Va chiamato dal cron di Dokploy ogni ora:
@@ -22,6 +23,7 @@ import {
  *   curl -H "Authorization: Bearer $CRON_SECRET" https://.../api/cron/notify
  */
 export const GET: RequestHandler = async ({ request, url }) => {
+	const inizioRun = Date.now();
 	/*
 	 * L'AUTORIZZAZIONE VIENE PRIMA DI QUALSIASI QUERY.
 	 * Se si controllasse dopo, una richiesta HTTP banale e senza credenziali
@@ -136,7 +138,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 
 	const purged = await purgeExpiredActionTokens();
 
-	return json({
+	const esito = {
 		hour,
 		users_with_due_plants: byUser.size,
 		notified,
@@ -144,5 +146,9 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		failed,
 		subscriptions_removed: removed,
 		action_tokens_purged: purged
-	});
+	};
+	// Traccia in job_runs: senza, "il cron delle notifiche sta girando?" era una
+	// domanda a cui il pannello poteva rispondere solo per indizi.
+	await registraRun('notify', inizioRun, { ok: true, detail: esito });
+	return json(esito);
 };
