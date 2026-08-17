@@ -13,9 +13,17 @@ export type Plant = {
 	/** Nota della pianta (max 2000). Diversa da CareEvent.note, che è per evento. */
 	notes: string | null;
 	state: PlantLifecycle;
-	/** 'photo' significa che GET /api/plants/<id>/avatar/thumb restituisce un'immagine. */
 	avatar_type: 'emoji' | 'photo';
 	photo_reminders: boolean;
+	/**
+	 * Id della foto avatar, o null se la pianta usa un'emoji.
+	 *
+	 * È QUESTO a decidere cosa si vede, non avatar_type: se c'è una foto ha la
+	 * priorità. Così le due informazioni non possono contraddirsi, e l'URL
+	 * `/api/photos/<id>/thumb` cambia a ogni sostituzione — che è ciò che rende
+	 * onesto il Cache-Control immutable.
+	 */
+	avatar_photo_id: string | null;
 	watering_interval_days: number;
 	fertilizing_interval_days: number | null;
 	effective_watering_interval: number;

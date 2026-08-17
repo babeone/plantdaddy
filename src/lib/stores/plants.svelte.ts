@@ -239,15 +239,20 @@ class PlantsStore {
 	 * dimensioni e resa diverse da quelle finali.
 	 */
 	async setAvatarPhoto(id: string, file: File): Promise<void> {
-		await api.upload(`/plants/${id}/avatar`, file);
+		// L'id della foto appena creata è indispensabile, non un extra: l'immagine
+		// si indirizza con /api/photos/<id>/thumb, e senza aggiornarlo qui il
+		// componente continuerebbe a chiedere la foto PRECEDENTE.
+		const data = await api.upload<{ photo: { id: string } }>(`/plants/${id}/avatar`, file);
 		const plant = this.byId(id);
-		if (plant) this.replace({ ...plant, avatar_type: 'photo' });
+		if (plant) {
+			this.replace({ ...plant, avatar_type: 'photo', avatar_photo_id: data.photo.id });
+		}
 	}
 
 	async removeAvatarPhoto(id: string): Promise<void> {
 		await api.del(`/plants/${id}/avatar`);
 		const plant = this.byId(id);
-		if (plant) this.replace({ ...plant, avatar_type: 'emoji' });
+		if (plant) this.replace({ ...plant, avatar_type: 'emoji', avatar_photo_id: null });
 	}
 
 	/** Archivia, segna come morta o riattiva. Lo storico resta in ogni caso. */

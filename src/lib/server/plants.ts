@@ -21,6 +21,19 @@ const statusColumns = () => sql`
 	state,
 	avatar_type,
 	photo_reminders,
+	-- Id della foto avatar, se c'è. Sottoquery scalare e non un quarto left join
+	-- lateral: colpisce l'indice unico parziale plant_photos_avatar_key, quindi è
+	-- una lettura di indice per riga.
+	--
+	-- Serve al client per costruire /api/photos/<id>/thumb. L'avatar NON si
+	-- indirizza per pianta: quella URL non cambierebbe sostituendo la foto, e con
+	-- Cache-Control immutable il browser continuerebbe a mostrare la vecchia
+	-- immagine per un anno. Con l'id nella URL, sostituire la foto cambia
+	-- l'indirizzo e la cache torna corretta invece di mentire.
+	(
+		select ph.id from plant_photos ph
+		where ph.plant_id = plant_status.id and ph.kind = 'avatar'
+	) as avatar_photo_id,
 	watering_interval_days,
 	fertilizing_interval_days,
 	effective_watering_interval,
@@ -43,6 +56,7 @@ export type PlantStatus = {
 	state: 'active' | 'archived' | 'dead';
 	avatar_type: 'emoji' | 'photo';
 	photo_reminders: boolean;
+	avatar_photo_id: string | null;
 	watering_interval_days: number;
 	fertilizing_interval_days: number | null;
 	effective_watering_interval: number;

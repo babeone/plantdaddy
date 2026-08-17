@@ -121,33 +121,40 @@
 			{#if avatarMode === 'emoji'}
 				<EmojiPicker value={emoji} onpick={(scelta) => (emoji = scelta)} />
 			{:else}
-				<div class="foto-riga">
+				<!-- Anteprima SOPRA e bottone a piena larghezza sotto, non affiancati:
+				     a 390px la riga orizzontale lasciava al bottone ~200px, e
+				     "Scegli una foto" ci andava a capo dentro. -->
+				<div class="foto-blocco">
 					{#if avatarPreview}
 						<img class="anteprima" src={avatarPreview} alt="Anteprima della foto scelta" />
-					{:else if plant?.avatar_type === 'photo'}
+					{:else if plant?.avatar_photo_id}
 						<img
 							class="anteprima"
-							src="/api/photos/avatar/{plant.id}/thumb"
+							src="/api/photos/{plant.avatar_photo_id}/thumb"
 							alt="Foto attuale della pianta"
 						/>
 					{:else}
-						<span class="anteprima vuota">🌿</span>
+						<span class="anteprima vuota">📷</span>
 					{/if}
-					<div class="foto-testo">
-						<!-- accept="image/*" e non un elenco di estensioni: su iOS è ciò che
-						     fa convertire l'HEIC in JPEG durante il caricamento. -->
-						<label class="btn btn-secondary" for="pf-avatar">
-							{avatarFile || plant?.avatar_type === 'photo' ? 'Cambia foto' : 'Scegli una foto'}
-						</label>
-						<input
-							id="pf-avatar"
-							class="file-nascosto"
-							type="file"
-							accept="image/*"
-							onchange={scegliFile}
-						/>
+
+					<!-- accept="image/*" e non un elenco di estensioni: su iOS è ciò che
+					     fa convertire l'HEIC in JPEG durante il caricamento. -->
+					<label class="btn btn-secondary" for="pf-avatar">
+						{avatarFile || plant?.avatar_photo_id ? 'Cambia foto' : 'Scegli una foto'}
+					</label>
+					<input
+						id="pf-avatar"
+						class="file-nascosto"
+						type="file"
+						accept="image/*"
+						onchange={scegliFile}
+					/>
+
+					{#if avatarFile}
+						<small class="scelto">{avatarFile.name}</small>
+					{:else}
 						<small>Massimo 15 MB. Le foto vengono rimpicciolite e i dati GPS rimossi.</small>
-					</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -236,34 +243,44 @@
 	.seg {
 		margin-bottom: 8px;
 	}
-	.foto-riga {
+	.foto-blocco {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 12px;
-	}
-	.anteprima {
-		width: 68px;
-		height: 68px;
-		border-radius: var(--r-md);
-		object-fit: cover;
+		gap: 10px;
+		padding: 12px;
 		background: var(--surface-2);
 		border: 1px solid var(--line);
-		flex-shrink: 0;
+		border-radius: var(--r-md);
+	}
+	.anteprima {
+		width: 96px;
+		height: 96px;
+		border-radius: var(--r-md);
+		object-fit: cover;
+		background: var(--surface);
+		border: 1px solid var(--line);
 	}
 	.anteprima.vuota {
 		display: grid;
 		place-items: center;
-		font-size: 30px;
+		font-size: 34px;
+		opacity: 0.5;
 	}
-	.foto-testo {
-		flex: 1;
-		min-width: 0;
-	}
-	.foto-testo small {
-		display: block;
-		margin-top: 6px;
+	.foto-blocco small {
 		font-size: 11.5px;
 		color: var(--text-mute);
+		text-align: center;
+		line-height: 1.35;
+	}
+	/* Il nome del file può essere lunghissimo: si tronca invece di allargare il
+	   riquadro oltre la larghezza del foglio. */
+	.foto-blocco small.scelto {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text-dim);
 	}
 	/* L'input file nativo non si può stilare: si nasconde e si usa la <label>
 	   come bottone, che apre il selettore comunque. */

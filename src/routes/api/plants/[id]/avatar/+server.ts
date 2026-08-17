@@ -19,9 +19,11 @@ import { cancellaFoto, gestisciUpload } from '$lib/server/photos/upload';
 export const POST: RequestHandler = async (event) =>
 	gestisciUpload(event, { kind: 'avatar', sostituisci: true });
 
-// La LETTURA dell'avatar sta in /api/photos/avatar/<pianta>, non qui: il cookie
-// di sola lettura delle immagini ha Path=/api/photos, e un <img> non può inviare
-// l'header X-Session-Token. Vedi $lib/server/photos/cookie.
+// La LETTURA passa dalle rotte generiche delle foto: /api/photos/<id>/thumb, con
+// l'id che il client trova in plant.avatar_photo_id. Non esiste una rotta
+// "avatar della pianta X" perché quella URL non cambierebbe sostituendo la foto,
+// e con Cache-Control immutable il browser mostrerebbe la vecchia immagine per un
+// anno — sintomo: "Pianta aggiornata" e niente che cambia a schermo.
 
 /** Torna all'emoji e rimuove la foto dallo storage. */
 export const DELETE: RequestHandler = async ({ params, locals }) => {

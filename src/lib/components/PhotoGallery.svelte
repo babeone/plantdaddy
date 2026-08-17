@@ -255,9 +255,11 @@
 		width: 14px;
 		height: 14px;
 	}
+	/* flex e NON block: .btn centra con align-items/justify-content, e con
+	   display:block quel centraggio spariva — il testo restava in alto nei 52px
+	   di altezza minima. La larghezza piena arriva già da .btn-primary. */
 	.carica {
-		display: block;
-		text-align: center;
+		display: flex;
 	}
 	.file-nascosto {
 		position: absolute;

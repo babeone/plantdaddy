@@ -722,7 +722,13 @@ html[data-nav='back']::view-transition-new(root) {
 .field {
 	margin-bottom: 14px;
 }
-.field label {
+/* :not(.btn) — un <label> può ANCHE essere un bottone.
+   Un input file nativo non si può stilare, quindi si nasconde e si usa la sua
+   <label> come bottone; ma questa regola ha specificità (0,2,0) e batte .btn
+   (0,1,0), così il "bottone" si ritrovava reso come etichetta di campo: piccolo,
+   grigio, allineato a sinistra e senza centraggio. Escludere .btn qui risolve
+   la classe del problema, invece di rincorrerla con !important a ogni uso. */
+.field label:not(.btn) {
 	display: block;
 	font-size: 13px;
 	font-weight: 650;

@@ -377,8 +377,12 @@
 	<PlantFormSheet
 		{plant}
 		onclose={() => (editing = false)}
-		onsave={async (input) => {
+		onsave={async (input, avatar) => {
 			await plants.update(plantId, input);
+			// Il secondo parametro è il file scelto nel form. Va caricato con una
+			// chiamata a parte: l'endpoint dell'avatar prende l'immagine come corpo
+			// grezzo, mentre la PATCH porta i campi in JSON.
+			if (avatar) await plants.setAvatarPhoto(plantId, avatar);
 			toasts.show('Pianta aggiornata');
 		}}
 	/>

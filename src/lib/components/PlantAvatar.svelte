@@ -22,16 +22,22 @@
 
 	let rotta = $state(false);
 
-	// La foto è stata sostituita? Cambia avatar_type o cambia pianta: in entrambi i
-	// casi si riprova, altrimenti un errore momentaneo resterebbe per sempre.
-	const chiave = $derived(`${plant.id}:${plant.avatar_type}`);
+	// La foto è stata sostituita? Cambia l'id, quindi si riprova: altrimenti un
+	// errore momentaneo resterebbe per sempre.
 	$effect(() => {
-		void chiave;
+		void plant.avatar_photo_id;
 		rotta = false;
 	});
 
-	const mostraFoto = $derived(plant.avatar_type === 'photo' && !rotta);
-	const src = $derived(`/api/photos/avatar/${plant.id}${full ? '' : '/thumb'}`);
+	// PRIORITÀ ALLA FOTO: decide la presenza dell'id, non avatar_type. Se c'è una
+	// foto si vede quella; l'emoji resta il ripiego per chi non ne ha o per quando
+	// l'immagine non si carica.
+	const mostraFoto = $derived(plant.avatar_photo_id !== null && !rotta);
+	// Indirizzata per ID DELLA FOTO e non per pianta: l'id cambia a ogni
+	// sostituzione, quindi il browser scarica la nuova immagine invece di servire
+	// quella in cache — che è esattamente il bug per cui "Pianta aggiornata" non
+	// cambiava niente a schermo.
+	const src = $derived(`/api/photos/${plant.avatar_photo_id}${full ? '' : '/thumb'}`);
 </script>
 
 {#if mostraFoto}
