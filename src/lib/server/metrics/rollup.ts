@@ -1,5 +1,5 @@
 import { sql } from '$lib/server/db';
-import { dailyDays, hourlyDays, maxRawRows, rawDays } from './config';
+import { dailyDays, hourlyDays, maxRawRows, rawDays, timeoutMs } from './config';
 
 /**
  * Aggregazione e pulizia. Gira una volta all'ora, chiamato da uno Schedule.
@@ -20,36 +20,52 @@ import { dailyDays, hourlyDays, maxRawRows, rawDays } from './config';
 const ORE_INDIETRO = 3;
 
 export async function rollupOrario(): Promise<number> {
+	const soglia = timeoutMs();
 	const righe = await sql`
 		insert into request_metrics_hourly (
-			bucket, route, method, requests, avg_ms, p50_ms, p95_ms, p99_ms, max_ms, c2xx, c4xx, c5xx
+			bucket, route, method, requests, c_ok, c_lente, avg_ms, p50_ms, p95_ms, p99_ms, max_ms, c4xx, c5xx
 		)
 		select
 			date_trunc('hour', created_at) as bucket,
 			route,
 			method,
 			count(*)::int,
-			avg(duration_ms)::real,
+			count(*) filter (where riuscita)::int,
+			count(*) filter (where status < 400 and duration_ms >= ${soglia})::int,
+			-- LATENZA SOLO SULLE RIUSCITE SOTTO SOGLIA. La clausola filter qui sotto è
+			-- il punto di tutta questa migrazione: senza, una chiamata appesa a 30
+			-- secondi si porta via la media dell'ora.
+			-- (niente apici inversi nei commenti: questa è una template literal di
+			-- JavaScript, e un backtick la chiuderebbe a metà query.)
+			-- coalesce a 0: con zero riuscite l'aggregato è NULL e le colonne sono
+			-- not null. Zero qui significa "nessun campione", non "zero millisecondi",
+			-- e la dashboard lo distingue guardando c_ok.
+			coalesce(avg(duration_ms) filter (where riuscita), 0)::real,
 			-- percentile_disc e non _cont: restituisce un valore realmente osservato
 			-- invece di interpolarne uno che nessuna richiesta ha mai avuto.
-			percentile_disc(0.50) within group (order by duration_ms)::int,
-			percentile_disc(0.95) within group (order by duration_ms)::int,
-			percentile_disc(0.99) within group (order by duration_ms)::int,
+			coalesce(percentile_disc(0.50) within group (order by duration_ms) filter (where riuscita), 0)::int,
+			coalesce(percentile_disc(0.95) within group (order by duration_ms) filter (where riuscita), 0)::int,
+			coalesce(percentile_disc(0.99) within group (order by duration_ms) filter (where riuscita), 0)::int,
+			-- max su TUTTE, anche le escluse: è il numero che dice quanto è stata
+			-- brutta la peggiore, e nasconderlo vanificherebbe metà del senso.
 			max(duration_ms),
-			count(*) filter (where status >= 200 and status < 300)::int,
 			count(*) filter (where status >= 400 and status < 500)::int,
 			count(*) filter (where status >= 500)::int
-		from request_metrics
-		where created_at >= date_trunc('hour', now()) - make_interval(hours => ${ORE_INDIETRO})
+		from (
+			select *, (status < 400 and duration_ms < ${soglia}) as riuscita
+			from request_metrics
+			where created_at >= date_trunc('hour', now()) - make_interval(hours => ${ORE_INDIETRO})
+		) m
 		group by 1, 2, 3
 		on conflict (bucket, route, method) do update set
 			requests = excluded.requests,
+			c_ok     = excluded.c_ok,
+			c_lente  = excluded.c_lente,
 			avg_ms   = excluded.avg_ms,
 			p50_ms   = excluded.p50_ms,
 			p95_ms   = excluded.p95_ms,
 			p99_ms   = excluded.p99_ms,
 			max_ms   = excluded.max_ms,
-			c2xx     = excluded.c2xx,
 			c4xx     = excluded.c4xx,
 			c5xx     = excluded.c5xx
 		returning bucket
@@ -70,34 +86,41 @@ export async function rollupOrario(): Promise<number> {
  * quello corrente e il precedente, che sono sempre coperti dai grezzi.
  */
 export async function rollupGiornaliero(): Promise<number> {
+	const soglia = timeoutMs();
 	const righe = await sql`
 		insert into request_metrics_daily (
-			bucket, route, method, requests, avg_ms, p50_ms, p95_ms, p99_ms, max_ms, c2xx, c4xx, c5xx
+			bucket, route, method, requests, c_ok, c_lente, avg_ms, p50_ms, p95_ms, p99_ms, max_ms, c4xx, c5xx
 		)
 		select
 			date_trunc('day', created_at)::date as bucket,
 			route,
 			method,
 			count(*)::int,
-			avg(duration_ms)::real,
-			percentile_disc(0.50) within group (order by duration_ms)::int,
-			percentile_disc(0.95) within group (order by duration_ms)::int,
-			percentile_disc(0.99) within group (order by duration_ms)::int,
+			count(*) filter (where riuscita)::int,
+			count(*) filter (where status < 400 and duration_ms >= ${soglia})::int,
+			-- Stessa regola dell'orario: la latenza descrive le risposte riuscite.
+			coalesce(avg(duration_ms) filter (where riuscita), 0)::real,
+			coalesce(percentile_disc(0.50) within group (order by duration_ms) filter (where riuscita), 0)::int,
+			coalesce(percentile_disc(0.95) within group (order by duration_ms) filter (where riuscita), 0)::int,
+			coalesce(percentile_disc(0.99) within group (order by duration_ms) filter (where riuscita), 0)::int,
 			max(duration_ms),
-			count(*) filter (where status >= 200 and status < 300)::int,
 			count(*) filter (where status >= 400 and status < 500)::int,
 			count(*) filter (where status >= 500)::int
-		from request_metrics
-		where created_at >= date_trunc('day', now()) - interval '1 day'
+		from (
+			select *, (status < 400 and duration_ms < ${soglia}) as riuscita
+			from request_metrics
+			where created_at >= date_trunc('day', now()) - interval '1 day'
+		) m
 		group by 1, 2, 3
 		on conflict (bucket, route, method) do update set
 			requests = excluded.requests,
+			c_ok     = excluded.c_ok,
+			c_lente  = excluded.c_lente,
 			avg_ms   = excluded.avg_ms,
 			p50_ms   = excluded.p50_ms,
 			p95_ms   = excluded.p95_ms,
 			p99_ms   = excluded.p99_ms,
 			max_ms   = excluded.max_ms,
-			c2xx     = excluded.c2xx,
 			c4xx     = excluded.c4xx,
 			c5xx     = excluded.c5xx
 		returning bucket

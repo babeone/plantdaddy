@@ -43,6 +43,25 @@ export function alwaysAboveMs(): number {
 }
 
 /**
+ * Soglia oltre la quale una risposta, anche riuscita, NON entra nel calcolo della
+ * latenza.
+ *
+ * Serve perché la media è una statistica fragile: una sola chiamata rimasta
+ * appesa a trenta secondi si porta via la media di un'ora intera, e il numero
+ * smette di dire "quanto è veloce il sito" per dire "è successo qualcosa".
+ * Quelle risposte non spariscono — vengono contate a parte e mostrate accanto,
+ * perché sono la cosa da guardare per prima.
+ *
+ * Va tenuta ben SOPRA METRICS_ALWAYS_ABOVE_MS: quella decide cosa registrare
+ * sempre, questa decide cosa è un valore anomalo. Con 1 s e 10 s, una richiesta da
+ * 2 s è lenta e si vede nella media; una da 30 s è un guasto e sta nel suo
+ * contatore.
+ */
+export function timeoutMs(): number {
+	return numero(env.METRICS_TIMEOUT_MS, 10_000, 100, 600_000);
+}
+
+/**
  * Tetto FISSO del buffer in memoria. Al raggiungimento si fa un flush immediato
  * e, se non è possibile, si scartano i record più vecchi: mai un array che cresce.
  * 500 record sono ~125 KB, contro un tetto dichiarato di 10 MB.

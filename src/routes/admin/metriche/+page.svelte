@@ -18,10 +18,10 @@
 	// Il significato completo sta nel titolo della sezione e nell'aria-label.
 	const COLONNE = [
 		['route', 'Endpoint', 'Endpoint'],
-		['requests', 'N.', 'Numero di richieste'],
-		['avg', 'med', 'Latenza media in ms'],
-		['p95', 'p95', 'Novantacinquesimo percentile in ms'],
-		['p99', 'p99', 'Novantanovesimo percentile in ms'],
+		['requests', 'N.', 'Numero totale di richieste'],
+		['avg', 'med', 'Latenza media delle risposte riuscite, in ms'],
+		['p95', 'p95', 'p95 delle risposte riuscite, in ms'],
+		['p99', 'p99', 'p99 delle risposte riuscite, in ms'],
 		['errori', '5xx/4xx', 'Errori server e client']
 	] as const;
 
@@ -34,7 +34,10 @@
 		`${data.base}/metriche?range=${p.range ?? data.range}&ord=${p.ord ?? data.ordine}`;
 
 	const mb = (b: number) => (b / 1048576).toFixed(1) + ' MB';
-	const ms = (v: number) => Math.round(v) + ' ms';
+	// Sopra il secondo si passa ai secondi: "30000 ms" richiede di contare gli zeri,
+	// "30,0 s" no — e questi numeri si guardano di fretta quando qualcosa non va.
+	const ms = (v: number) =>
+		v >= 1000 ? (v / 1000).toFixed(1).replace('.', ',') + ' s' : Math.round(v) + ' ms';
 	const stamp = (d: Date | string | null) => (d ? new Date(d).toLocaleString('it-IT') : '—');
 
 	// Le etichette dell'asse dipendono dal range: ore per le 24h, date per il resto.
@@ -47,6 +50,9 @@
 	);
 
 	const p95 = $derived(data.punti.map((p) => p.p95_ms));
+	const lente = $derived(data.punti.map((p) => p.c_lente));
+	const totaleLente = $derived(data.punti.reduce((a, p) => a + p.c_lente, 0));
+	const secondi = (v: number) => (v / 1000).toFixed(1).replace('.', ',') + ' s';
 	// Error rate per punto, in percentuale con un decimale: su volumi bassi
 	// arrotondare all'intero farebbe sparire ogni errore isolato.
 	const errorRate = $derived(
@@ -62,13 +68,45 @@
 
 <div class="stat-grid">
 	<div class="stat"><b>{s.requests}</b><small>Richieste (24h)</small></div>
-	<div class="stat"><b>{ms(s.avg_ms)}</b><small>Latenza media</small></div>
-	<div class="stat"><b>{ms(s.p95_ms)}</b><small>p95</small></div>
+	<!-- L'etichetta dice ESATTAMENTE cosa è nel numero. Escludere errori e risposte
+	     oltre soglia dalla media è corretto — una chiamata appesa a 30 secondi la
+	     falserebbe da sola — ma diventa una bugia se non lo si scrive. -->
+	<div class="stat">
+		<b>{ms(s.avg_ms)}</b>
+		<small>Latenza media <em>delle risposte riuscite</em> — su {s.c_ok} di {s.requests}</small>
+	</div>
+	<div class="stat">
+		<b>{ms(s.p95_ms)}</b>
+		<small>p95 riuscite · mediana {ms(s.p50_ms)}</small>
+	</div>
 	<div class="stat">
 		<b class:allarme={s.error_rate > 1}>{s.error_rate.toFixed(2)}%</b>
 		<small>Error rate 5xx — {s.c5xx} su {s.requests}</small>
 	</div>
 </div>
+
+<div class="group-title">Esiti nelle 24 ore</div>
+<div class="stat-grid">
+	<div class="stat">
+		<b class="buono">{s.c_ok}</b>
+		<small>Riuscite sotto {secondi(s.soglia_ms)}</small>
+	</div>
+	<div class="stat">
+		<b class:allarme={s.c_lente > 0}>{s.c_lente}</b>
+		<small>Oltre {secondi(s.soglia_ms)} — escluse dalla latenza</small>
+	</div>
+	<div class="stat">
+		<b class:allarme={s.c5xx > 0}>{s.c5xx}</b>
+		<small>Errori server (5xx)</small>
+	</div>
+	<div class="stat"><b>{s.c4xx}</b><small>Errori client (4xx)</small></div>
+</div>
+<p class="muted-text">
+	La più lenta in assoluto nelle 24 ore è stata <b>{ms(s.max_ms)}</b>: il massimo è calcolato su
+	<em>tutte</em>
+	le richieste, anche quelle escluse dalla media, così una singola risposta disastrosa resta visibile
+	invece di sparire in un filtro. La soglia si cambia con <code>METRICS_TIMEOUT_MS</code>.
+</p>
 
 <nav class="range" aria-label="Periodo">
 	{#each RANGE as [valore, etichetta] (valore)}
@@ -78,10 +116,22 @@
 	{/each}
 </nav>
 
-<div class="group-title">Latenza p95</div>
+<div class="group-title">Latenza p95 delle risposte riuscite</div>
 <div class="card">
 	<Sparkline punti={p95} {etichette} unita=" ms" />
 </div>
+
+{#if totaleLente > 0}
+	<div class="group-title">Risposte oltre {secondi(s.soglia_ms)}</div>
+	<div class="card">
+		<Sparkline punti={lente} {etichette} colore="var(--today)" />
+		<div class="divider"></div>
+		<p class="muted-text">
+			Riuscite ma lentissime: per chi le ha aspettate sono indistinguibili da un blocco. Non entrano
+			nella media proprio perché la falserebbero — è questo il grafico dove guardarle.
+		</p>
+	</div>
+{/if}
 
 <div class="group-title">Error rate 5xx</div>
 <div class="card">
@@ -379,6 +429,20 @@
 	.facts small {
 		font-size: 11px;
 		color: var(--text-mute);
+	}
+	/* Riga a piena larghezza sotto la voce: si vede solo quando c'è qualcosa da
+	   dire, così la tabella resta compatta nel caso normale. */
+	.nota-lente {
+		grid-column: 1 / -1;
+		font-size: 10.5px;
+		color: var(--today);
+	}
+	.buono {
+		color: var(--ok);
+	}
+	em {
+		font-style: normal;
+		color: var(--text-dim);
 	}
 	code {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

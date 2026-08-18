@@ -9,7 +9,8 @@ import {
 	maxRawRows,
 	metricsEnabled,
 	rawDays,
-	sampleRate
+	sampleRate,
+	timeoutMs
 } from '$lib/server/metrics/config';
 
 /**
@@ -64,30 +65,55 @@ function finestra(range: Range): { ore: number; fonte: 'raw' | 'hourly' | 'daily
 
 export type Riepilogo = {
 	requests: number;
-	avg_ms: number;
-	p95_ms: number;
+	/** Risposte riuscite sotto soglia: è il campione su cui è calcolata la latenza. */
+	c_ok: number;
+	c_lente: number;
 	c4xx: number;
 	c5xx: number;
+	avg_ms: number;
+	p50_ms: number;
+	p95_ms: number;
+	max_ms: number;
 	error_rate: number;
+	soglia_ms: number;
 };
 
+/**
+ * LA LATENZA SI MISURA SULLE RISPOSTE RIUSCITE, non su tutte.
+ *
+ * Il `filter (where riuscita)` è la parte che conta. Senza, bastava una chiamata
+ * rimasta appesa a trenta secondi per portarsi via la media di un'intera giornata,
+ * e il numero smetteva di rispondere a "quanto è veloce il sito" per rispondere a
+ * "è successo qualcosa" — che è una domanda diversa e ha già i suoi contatori.
+ *
+ * Niente sparisce: gli errori e le risposte oltre soglia sono contati a parte, e
+ * `max_ms` resta calcolato su TUTTE, così la peggiore in assoluto è comunque
+ * visibile invece di essere nascosta da un filtro.
+ */
 export async function riepilogo24h(): Promise<Riepilogo> {
+	const soglia = timeoutMs();
 	return conTimeout(async (tx) => {
-		const [row] = await tx<
-			{ requests: number; avg_ms: number; p95_ms: number; c4xx: number; c5xx: number }[]
-		>`
+		const [row] = await tx<Omit<Riepilogo, 'error_rate' | 'soglia_ms'>[]>`
 			select
 				count(*)::int as requests,
-				coalesce(avg(duration_ms), 0)::real as avg_ms,
-				coalesce(percentile_disc(0.95) within group (order by duration_ms), 0)::int as p95_ms,
+				count(*) filter (where riuscita)::int as c_ok,
+				count(*) filter (where status < 400 and duration_ms >= ${soglia})::int as c_lente,
 				count(*) filter (where status >= 400 and status < 500)::int as c4xx,
-				count(*) filter (where status >= 500)::int as c5xx
-			from request_metrics
-			where created_at >= now() - interval '24 hours'
+				count(*) filter (where status >= 500)::int as c5xx,
+				coalesce(avg(duration_ms) filter (where riuscita), 0)::real as avg_ms,
+				coalesce(percentile_disc(0.50) within group (order by duration_ms) filter (where riuscita), 0)::int as p50_ms,
+				coalesce(percentile_disc(0.95) within group (order by duration_ms) filter (where riuscita), 0)::int as p95_ms,
+				coalesce(max(duration_ms), 0)::int as max_ms
+			from (
+				select *, (status < 400 and duration_ms < ${soglia}) as riuscita
+				from request_metrics
+				where created_at >= now() - interval '24 hours'
+			) m
 		`;
 		return {
 			...row,
-			error_rate: row.requests === 0 ? 0 : (row.c5xx / row.requests) * 100
+			error_rate: row.requests === 0 ? 0 : (row.c5xx / row.requests) * 100,
+			soglia_ms: soglia
 		};
 	});
 }
@@ -96,9 +122,12 @@ export type PerEndpoint = {
 	route: string;
 	method: string;
 	requests: number;
+	c_ok: number;
+	c_lente: number;
 	avg_ms: number;
 	p95_ms: number;
 	p99_ms: number;
+	max_ms: number;
 	c4xx: number;
 	c5xx: number;
 };
@@ -121,6 +150,7 @@ export function ordineValido(valore: string | null): Ordine {
 
 export async function perEndpoint(range: Range, ordine: Ordine): Promise<PerEndpoint[]> {
 	const { ore, fonte } = finestra(range);
+	const soglia = timeoutMs();
 	// L'ordinamento arriva da una whitelist e non dalla query string grezza: è
 	// l'unico punto di questo file dove un frammento non è parametrizzato, e per
 	// questo il valore non può che venire da ORDINI.
@@ -132,13 +162,19 @@ export async function perEndpoint(range: Range, ordine: Ordine): Promise<PerEndp
 				select
 					route, method,
 					count(*)::int as requests,
-					avg(duration_ms)::real as avg_ms,
-					percentile_disc(0.95) within group (order by duration_ms)::int as p95_ms,
-					percentile_disc(0.99) within group (order by duration_ms)::int as p99_ms,
+					count(*) filter (where riuscita)::int as c_ok,
+					count(*) filter (where status < 400 and duration_ms >= ${soglia})::int as c_lente,
+					coalesce(avg(duration_ms) filter (where riuscita), 0)::real as avg_ms,
+					coalesce(percentile_disc(0.95) within group (order by duration_ms) filter (where riuscita), 0)::int as p95_ms,
+					coalesce(percentile_disc(0.99) within group (order by duration_ms) filter (where riuscita), 0)::int as p99_ms,
+					coalesce(max(duration_ms), 0)::int as max_ms,
 					count(*) filter (where status >= 400 and status < 500)::int as c4xx,
 					count(*) filter (where status >= 500)::int as c5xx
-				from request_metrics
-				where created_at >= now() - make_interval(hours => ${ore})
+				from (
+					select *, (status < 400 and duration_ms < ${soglia}) as riuscita
+					from request_metrics
+					where created_at >= now() - make_interval(hours => ${ore})
+				) m
 				group by route, method
 				order by ${orderBy}
 				limit 100
@@ -153,9 +189,17 @@ export async function perEndpoint(range: Range, ordine: Ordine): Promise<PerEndp
 			select
 				route, method,
 				sum(requests)::int as requests,
-				(sum(avg_ms * requests) / greatest(sum(requests), 1))::real as avg_ms,
+				sum(c_ok)::int as c_ok,
+				sum(c_lente)::int as c_lente,
+				-- La media si pondera su c_ok e NON su requests: avg_ms descrive solo le
+				-- risposte riuscite, quindi pesarla col totale darebbe un numero che non
+				-- corrisponde a nessuna popolazione reale.
+				(sum(avg_ms * c_ok) / greatest(sum(c_ok), 1))::real as avg_ms,
+				-- Massimo dei percentili e non media: il p95 di un insieme non è la media
+				-- dei p95 dei suoi pezzi. Approssimazione conservativa e dichiarata.
 				max(p95_ms)::int as p95_ms,
 				max(p99_ms)::int as p99_ms,
+				max(max_ms)::int as max_ms,
 				sum(c4xx)::int as c4xx,
 				sum(c5xx)::int as c5xx
 			from ${tabella}
@@ -167,19 +211,28 @@ export async function perEndpoint(range: Range, ordine: Ordine): Promise<PerEndp
 	});
 }
 
-export type PuntoSerie = { at: Date; p95_ms: number; requests: number; c5xx: number };
+export type PuntoSerie = {
+	at: Date;
+	p95_ms: number;
+	requests: number;
+	c5xx: number;
+	c_lente: number;
+};
 
 /** Serie temporale per i due grafici. Un punto per ora o per giorno. */
 export async function serie(range: Range): Promise<PuntoSerie[]> {
 	const { ore, fonte } = finestra(range);
+	const soglia = timeoutMs();
 	return conTimeout(async (tx) => {
 		if (fonte === 'raw') {
 			return tx<PuntoSerie[]>`
 				select
 					date_trunc('hour', created_at) as at,
-					percentile_disc(0.95) within group (order by duration_ms)::int as p95_ms,
+					coalesce(percentile_disc(0.95) within group (order by duration_ms)
+						filter (where status < 400 and duration_ms < ${soglia}), 0)::int as p95_ms,
 					count(*)::int as requests,
-					count(*) filter (where status >= 500)::int as c5xx
+					count(*) filter (where status >= 500)::int as c5xx,
+					count(*) filter (where status < 400 and duration_ms >= ${soglia})::int as c_lente
 				from request_metrics
 				where created_at >= now() - make_interval(hours => ${ore})
 				group by 1
@@ -192,7 +245,8 @@ export async function serie(range: Range): Promise<PuntoSerie[]> {
 				bucket::timestamptz as at,
 				max(p95_ms)::int as p95_ms,
 				sum(requests)::int as requests,
-				sum(c5xx)::int as c5xx
+				sum(c5xx)::int as c5xx,
+				sum(c_lente)::int as c_lente
 			from ${tabella}
 			where bucket >= now() - make_interval(hours => ${ore})
 			group by 1
