@@ -4,6 +4,9 @@
 	let { data }: { data: PageServerData } = $props();
 
 	const withNotes = $derived(data.plants.filter((plant) => plant.has_notes).length);
+	const conFoto = $derived(
+		data.plants.filter((p) => p.avatar_photo_id || p.gallery_ids.length > 0).length
+	);
 </script>
 
 <p class="crumb"><a href="{data.base}/utenti">← Tutti gli utenti</a></p>
@@ -14,7 +17,11 @@
 <div class="stat-grid">
 	<div class="stat">
 		<b>{data.plants.length}</b>
-		<small>Piante{withNotes > 0 ? `, ${withNotes} con nota` : ''}</small>
+		<small>
+			Piante{withNotes > 0 ? `, ${withNotes} con nota` : ''}{conFoto > 0
+				? `, ${conFoto} con foto`
+				: ''}
+		</small>
 	</div>
 	<div class="stat">
 		<b>{String(data.user.notify_hour).padStart(2, '0')}:00</b>
@@ -46,7 +53,25 @@
 	<div class="group">
 		{#each data.plants as plant (plant.name)}
 			<div class="item">
-				<span class="avatar small">{plant.emoji ?? '🪴'}</span>
+				<!-- L'avatar è la foto se c'è, l'emoji altrimenti: stessa priorità
+				     dell'app.
+				     NIENTE onerror qui: il pannello ha csr = false e non riceve un byte di
+				     JavaScript, quindi un gestore di eventi non scatterebbe mai — sarebbe
+				     codice morto che dà una falsa sensazione di sicurezza. Se l'archivio è
+				     giù si vede il segnaposto del browser, e lo stato dello storage sta
+				     comunque nella scheda Sistema. Nell'app utente il ripiego sull'emoji
+				     funziona perché lì il JavaScript c'è. -->
+				{#if plant.avatar_photo_id}
+					<img
+						class="avatar small foto"
+						src="{data.base}/foto/{plant.avatar_photo_id}/thumb"
+						alt="Avatar di {plant.name}"
+						loading="lazy"
+						decoding="async"
+					/>
+				{:else}
+					<span class="avatar small">{plant.emoji ?? '🪴'}</span>
+				{/if}
 				<span class="facts">
 					<span>{plant.name}{plant.location ? ` · ${plant.location}` : ''}</span>
 					<small>
@@ -64,6 +89,26 @@
 					<small>ultima: {plant.last_watered ?? '—'}</small>
 					<small>prossima: {plant.next_watering ?? 'adesso'}</small>
 				</span>
+				{#if plant.gallery_ids.length > 0}
+					<!-- Diario a piena larghezza sotto la voce. Si chiedono le thumbnail e
+					     al massimo otto per pianta: il pannello risponde no-store, quindi
+					     ogni miniatura è una richiesta vera all'archivio a ogni apertura. -->
+					<span class="diario">
+						{#each plant.gallery_ids as id (id)}
+							<a href="{data.base}/foto/{id}" target="_blank" rel="noreferrer">
+								<img
+									src="{data.base}/foto/{id}/thumb"
+									alt="Foto del diario di {plant.name}"
+									loading="lazy"
+									decoding="async"
+								/>
+							</a>
+						{/each}
+						{#if plant.events > 0 && plant.gallery_ids.length === 8}
+							<span class="altre">altre…</span>
+						{/if}
+					</span>
+				{/if}
 			</div>
 		{/each}
 	</div>
@@ -93,10 +138,17 @@
 	</div>
 {/if}
 
-{#if !data.showText}
+{#if !data.showText || !data.showPhotos}
 	<p class="muted-text privacy">
-		Il testo scritto dall’utente non viene mostrato: viene solo contato. Per vederlo serve
-		<code>ADMIN_SHOW_USER_TEXT=true</code> nella configurazione dell’istanza.
+		{#if !data.showText}
+			Il testo scritto dall’utente non viene mostrato: viene solo contato. Per vederlo serve
+			<code>ADMIN_SHOW_USER_TEXT=true</code>.
+		{/if}
+		{#if !data.showPhotos}
+			Le foto degli utenti non vengono mostrate: con l’interruttore spento gli id non lasciano
+			nemmeno il database. Per vederle serve <code>ADMIN_SHOW_USER_PHOTOS=true</code>, oppure basta
+			<code>ADMIN_SHOW_USER_TEXT=true</code> da cui questa eredita quando non è impostata.
+		{/if}
 	</p>
 {/if}
 
@@ -126,6 +178,43 @@
 		width: 32px;
 		height: 32px;
 		font-size: 17px;
+		flex-shrink: 0;
+	}
+	.avatar.small.foto {
+		object-fit: cover;
+		display: block;
+	}
+	/* `.group > .item` in app.css è FLEX, non grid: `grid-column: 1 / -1` lì dentro
+	   non fa assolutamente niente, e il diario finiva in riga accanto alle date
+	   invece che sotto. Con wrap sul contenitore e flex-basis 100% qui, la riga va
+	   a capo per davvero. */
+	.group > .item {
+		flex-wrap: wrap;
+	}
+	/* Scorre in orizzontale invece di far crescere l'altezza della riga: un utente
+	   con otto foto per pianta non deve trasformare la pagina in un chilometro. */
+	.diario {
+		flex-basis: 100%;
+		width: 100%;
+		display: flex;
+		gap: 6px;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		padding: 2px 0;
+	}
+	.diario img {
+		width: 56px;
+		height: 56px;
+		object-fit: cover;
+		border-radius: var(--r-sm);
+		border: 1px solid var(--line);
+		display: block;
+		flex-shrink: 0;
+	}
+	.altre {
+		align-self: center;
+		font-size: 10.5px;
+		color: var(--text-mute);
 		flex-shrink: 0;
 	}
 	.kind {

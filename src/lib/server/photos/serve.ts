@@ -51,6 +51,60 @@ async function chiave(
 	return quale === 'thumb' ? riga.thumb_key : riga.object_key;
 }
 
+/**
+ * Chiave di una foto QUALUNQUE, senza controllo di proprietà.
+ *
+ * Esiste solo per il pannello di controllo, che per definizione guarda i dati di
+ * altri. Il controllo qui non c'è perché è già stato fatto a monte, e va fatto
+ * là: requireAdmin() pretende sessione completa di secondo fattore, e la rotta
+ * vive sotto /admin, che risponde 404 se il pannello non è configurato o l'IP non
+ * è in allowlist.
+ *
+ * Non chiamare questa funzione da nessuna rotta che non sia sotto /admin.
+ */
+async function chiaveSenzaProprietario(photoId: string, quale: Quale): Promise<string | null> {
+	const [riga] = await sql<{ object_key: string; thumb_key: string }[]>`
+		select object_key, thumb_key from plant_photos where id = ${photoId}
+	`;
+	if (!riga) return null;
+	return quale === 'thumb' ? riga.thumb_key : riga.object_key;
+}
+
+/** Corpo comune: legge dall'archivio e impacchetta la risposta. */
+async function rispondi(key: string, cache: string): Promise<Response> {
+	let oggetto;
+	try {
+		oggetto = await getObjectStream(key);
+	} catch (err) {
+		console.error('[foto] lettura da storage fallita', key, err);
+		error(503, 'Archivio foto non raggiungibile');
+	}
+	return new Response(oggetto.body, {
+		headers: {
+			'content-type': oggetto.contentType,
+			'cache-control': cache,
+			...(oggetto.contentLength ? { 'content-length': String(oggetto.contentLength) } : {}),
+			'x-content-type-options': 'nosniff',
+			'x-robots-tag': 'noindex, nofollow'
+		}
+	});
+}
+
+/**
+ * Serve una foto al pannello di controllo.
+ *
+ * `no-store` e non `immutable` come per l'utente: queste immagini sono di
+ * qualcun altro e non devono restare nella cache del browser di chi amministra
+ * dopo che ha chiuso la pagina. Costa una richiesta all'archivio per ogni
+ * visualizzazione, ed è il prezzo giusto per un pannello che si apre di rado.
+ */
+export async function serviFotoAdmin(photoId: string, quale: Quale): Promise<Response> {
+	if (!storageConfigured()) error(503, 'Archivio foto non configurato');
+	const key = await chiaveSenzaProprietario(photoId, quale);
+	if (!key) error(404, 'Foto non trovata');
+	return rispondi(key, 'no-store, no-cache, must-revalidate');
+}
+
 export async function serviFoto(
 	tokenHash: string,
 	where: { photoId: string } | { plantId: string; kind: 'avatar' },

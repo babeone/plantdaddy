@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireUuid } from '$lib/server/auth';
-import { adminShowUserText, adminUrl } from '$lib/server/admin/config';
+import { adminShowUserPhotos, adminShowUserText, adminUrl } from '$lib/server/admin/config';
 import { requireAdmin } from '$lib/server/admin/guard';
 import { getUser, listUserEvents, listUserPlants } from '$lib/server/admin/queries';
 import { audit } from '$lib/server/admin/session';
@@ -33,6 +33,7 @@ export const load: PageServerLoad = async (event) => {
 		plants,
 		events,
 		showText: adminShowUserText(),
+		showPhotos: adminShowUserPhotos(),
 		maxEvents: MAX_EVENTS,
 		base: adminUrl()
 	};

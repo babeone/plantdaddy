@@ -1,6 +1,6 @@
 import { sql } from '$lib/server/db';
 import { today } from '$lib/server/date';
-import { adminShowUserText } from './config';
+import { adminShowUserPhotos, adminShowUserText } from './config';
 
 /**
  * Query del pannello, TUTTE di sola lettura.
@@ -192,13 +192,43 @@ export type AdminPlant = {
 	events: number;
 	notes: string | null;
 	has_notes: boolean;
+	/** Id della foto avatar, se la pianta ne ha una. null se usa un'emoji. */
+	avatar_photo_id: string | null;
+	/** Id delle foto del diario, dalla più recente. Vuoto se non ce ne sono. */
+	gallery_ids: string[];
 };
+
+/** Anteprime del diario mostrate per pianta nel pannello. */
+const MAX_ANTEPRIME = 8;
 
 export async function listUserPlants(adminRef: string): Promise<AdminPlant[]> {
 	// Il testo della nota entra nella SELECT solo se l'istanza lo consente. Con
 	// l'impostazione spenta il contenuto non lascia proprio il database, invece di
 	// uscire e poi essere nascosto in pagina.
 	const notesColumn = adminShowUserText() ? sql`ps.notes` : sql`null::text as notes`;
+
+	// Gli id delle foto escono dalla query SOLO se l'istanza le mostra: con
+	// l'interruttore spento non lasciano nemmeno il database, invece di uscire e
+	// poi essere nascosti in pagina. Stessa regola già applicata alle note.
+	const mostraFoto = adminShowUserPhotos();
+	const avatarColumn = mostraFoto
+		? sql`(select ph.id from plant_photos ph where ph.plant_id = ps.id and ph.kind = 'avatar')`
+		: sql`null::uuid`;
+	// MAX_ANTEPRIME per pianta e non tutte: con 100 piante da 61 slot ciascuna la
+	// pagina chiederebbe migliaia di immagini, e ogni thumbnail è una richiesta
+	// all'archivio perché il pannello risponde no-store.
+	const galleryColumn = mostraFoto
+		? sql`coalesce((
+				select array_agg(x.id order by x.created_at desc)
+				from (
+					select id, created_at from plant_photos
+					where plant_id = ps.id and kind = 'gallery'
+					order by created_at desc
+					limit ${MAX_ANTEPRIME}
+				) x
+			), '{}')`
+		: sql`'{}'::uuid[]`;
+
 	return sql<AdminPlant[]>`
 		select
 			ps.name,
@@ -210,7 +240,9 @@ export async function listUserPlants(adminRef: string): Promise<AdminPlant[]> {
 			to_char(ps.next_watering, 'YYYY-MM-DD') as next_watering,
 			(select count(*)::int from care_events where plant_id = ps.id) as events,
 			${notesColumn},
-			(ps.notes is not null and ps.notes <> '') as has_notes
+			(ps.notes is not null and ps.notes <> '') as has_notes,
+			${avatarColumn} as avatar_photo_id,
+			${galleryColumn} as gallery_ids
 		from plant_status ps
 		join users u on u.token_hash = ps.user_token_hash
 		where u.admin_ref = ${adminRef}

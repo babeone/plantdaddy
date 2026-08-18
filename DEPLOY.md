@@ -199,13 +199,14 @@ solo quando vuoi promuovere.
 
 Facoltative, solo se vuoi il pannello di controllo (vedi § 10):
 
-| Variabile              | Valore        | Note                                                 |
-| ---------------------- | ------------- | ---------------------------------------------------- |
-| `ADMIN_ENABLED`        | `true`        | senza questa ogni rotta del pannello risponde 404    |
-| `PUBLIC_ADMIN_PATH`    | `/superman`   | percorso pubblico; **non** è una misura di sicurezza |
-| `ADMIN_IP_ALLOWLIST`   | `1.2.3.4`     | IP esatti separati da virgola; fuori elenco è 404    |
-| `ADMIN_SHOW_USER_TEXT` | non impostata | a `true` mostra le note scritte dagli utenti         |
-| `ADMIN_SESSION_HOURS`  | `8`           | durata massima della sessione admin                  |
+| Variabile                | Valore        | Note                                                                             |
+| ------------------------ | ------------- | -------------------------------------------------------------------------------- |
+| `ADMIN_ENABLED`          | `true`        | senza questa ogni rotta del pannello risponde 404                                |
+| `PUBLIC_ADMIN_PATH`      | `/superman`   | percorso pubblico; **non** è una misura di sicurezza                             |
+| `ADMIN_IP_ALLOWLIST`     | `1.2.3.4`     | IP esatti separati da virgola; fuori elenco è 404                                |
+| `ADMIN_SHOW_USER_TEXT`   | non impostata | a `true` mostra le note scritte dagli utenti                                     |
+| `ADMIN_SHOW_USER_PHOTOS` | non impostata | foto degli utenti nel pannello; **eredita da `ADMIN_SHOW_USER_TEXT`** se assente |
+| `ADMIN_SESSION_HOURS`    | `8`           | durata massima della sessione admin                                              |
 
 > **`Cross-site POST form submissions are forbidden` al login del pannello.**
 > SvelteKit confronta l'header `Origin` del browser con l'origine calcolata da

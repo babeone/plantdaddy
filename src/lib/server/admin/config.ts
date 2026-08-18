@@ -54,6 +54,24 @@ export function adminShowUserText(): boolean {
 	return env.ADMIN_SHOW_USER_TEXT === 'true';
 }
 
+/**
+ * Foto degli utenti visibili nel pannello.
+ *
+ * EREDITA da ADMIN_SHOW_USER_TEXT se non impostata esplicitamente. Il ragionamento:
+ * sono la stessa categoria — contenuto caricato dalle persone che usano l'app — e
+ * chi ha già deciso di poter leggere le note difficilmente vuole essere cieco sulle
+ * foto. Chi le vuole separate imposta ADMIN_SHOW_USER_PHOTOS e quella vince.
+ *
+ * Il default resta quindi SPENTO per chi clona il repository: un pannello che
+ * mostra le foto di casa altrui non deve accendersi da solo.
+ */
+export function adminShowUserPhotos(): boolean {
+	const esplicita = env.ADMIN_SHOW_USER_PHOTOS;
+	if (esplicita === 'true') return true;
+	if (esplicita === 'false') return false;
+	return adminShowUserText();
+}
+
 /** Scadenza assoluta della sessione admin, in ore. Fuori range torna 8. */
 export function adminSessionHours(): number {
 	const parsed = Number(env.ADMIN_SESSION_HOURS ?? 8);
